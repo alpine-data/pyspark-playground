@@ -51,6 +51,8 @@ def create_movies(spark: SparkSession) -> DataFrame:
 
 
 def prepare_hub(staging: DataFrame, business_key_columns: List[str]) -> DataFrame:
+    # Löschen getrennt behandeln 
+    
     return staging \
         .withColumn(Columns.LAST_SEEN_DATE, staging[Columns.LOAD_DATE]) \
         .alias("l") \
