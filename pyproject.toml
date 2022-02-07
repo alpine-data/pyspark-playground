@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "pyspark-datavault"
+version = "0.1.0"
+description = "A PySpark library to support development of a DataVault on basis of Spark and Delta Lake."
+authors = ["Michael Wellner <michaelwellner@kpmg.com>"]
+license = "Apache-2.0"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pydantic = "^1.8.2"
+
+[tool.poetry.dev-dependencies]
+pyspark = "3.2.0"
+delta-spark = "^1.1.0"
+pytest = "^6.2.5"
+chispa = "^0.8.2"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
