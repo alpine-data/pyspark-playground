@@ -1,12 +1,13 @@
-# PySparkDataVault
+# PySpark Playground
 
-A PySpark library to support development of a DataVault on basis of Spark and Delta Lake.
+A simple Python project to test PySpark algrothms for Data Vault transformations on Spark.
 
 ## Development
 
 **System Requirements**
-* [Conda](https://docs.conda.io/en/latest/miniconda.html)
-* [Poetry](https://python-poetry.org/)
+
+- [Conda](https://docs.conda.io/en/latest/miniconda.html)
+- [Poetry](https://python-poetry.org/)
 
 To start development of the project. Create a local development environment.
 

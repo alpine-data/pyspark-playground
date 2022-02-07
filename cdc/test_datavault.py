@@ -47,7 +47,7 @@ def create_movies(spark: SparkSession) -> DataFrame:
 
     return spark \
         .createDataFrame(data, [Columns.OPERATION, Columns.LOAD_DATE, "id", "name", "year", "director", "rating", "rank"]) \
-        .withColumn(Columns.HKEY, DataVaultFunctions.hash(["name", "year"])) 
+        .withColumn(Columns.HKEY, DataVaultFunctions.hash(["name", "year"]))
 
 
 def prepare_hub(staging: DataFrame, business_key_columns: List[str]) -> DataFrame:
