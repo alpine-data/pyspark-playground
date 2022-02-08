@@ -78,38 +78,38 @@ def create_actors(spark: SparkSession) -> DataFrame:
 
     data = [
         [
-            # $operation, $load_date, id, name
-            (Operation.SNAPSHOT, t0, 1, "Tim Robbins"),
-            (Operation.SNAPSHOT, t0, 2, "Morgan Freeman"),
-            (Operation.SNAPSHOT, t0, 3, "Bob Gunton"),
-            (Operation.SNAPSHOT, t0, 4, "William Sadler"),
-            (Operation.SNAPSHOT, t0, 5, "Marlon Brando"),
-            (Operation.SNAPSHOT, t0, 6, "Al Pacino"),
-            (Operation.SNAPSHOT, t0, 7, "James Caan"),
-            (Operation.SNAPSHOT, t0, 8, "Christian Bale"),
-            (Operation.SNAPSHOT, t0, 9, "Heath Ledger"),
-            (Operation.SNAPSHOT, t0, 10, "Mark Hamill"),
-            (Operation.SNAPSHOT, t0, 11, "Harrison Ford"),
-            (Operation.SNAPSHOT, t0, 12, "Carrie Fisher"),
-            (Operation.SNAPSHOT, t0, 13, "Robert Duvall"),
-            (Operation.SNAPSHOT, t0, 14, "John Marley"),
-            (Operation.SNAPSHOT, t0, 15, "Gary Oldman"),
+            # $operation, $load_date, id, name, country
+            (Operation.SNAPSHOT, t0, 1, "Tim Robbins", "USA"),
+            (Operation.SNAPSHOT, t0, 2, "Morgan Freeman", "USA"),
+            (Operation.SNAPSHOT, t0, 3, "Bob Gunton", "USA"),
+            (Operation.SNAPSHOT, t0, 4, "William Sadler", "USA"),
+            (Operation.SNAPSHOT, t0, 5, "Marlon Brando", "USA"),
+            (Operation.SNAPSHOT, t0, 6, "Al Pacino", "USA"),
+            (Operation.SNAPSHOT, t0, 7, "James Caan", "USA"),
+            (Operation.SNAPSHOT, t0, 8, "Christian Bale", "USA"),
+            (Operation.SNAPSHOT, t0, 9, "Heath Ledger", "Australia"),
+            (Operation.SNAPSHOT, t0, 10, "Mark Hamill", "USA"),
+            (Operation.SNAPSHOT, t0, 11, "Harrison Ford", "USA"),
+            (Operation.SNAPSHOT, t0, 12, "Carrie Fisher", "USA"),
+            (Operation.SNAPSHOT, t0, 13, "Robert Duvall", "USA"),
+            (Operation.SNAPSHOT, t0, 14, "John Marley", "USA"),
+            (Operation.SNAPSHOT, t0, 15, "Gary Oldman", "UK"),
         ],
         [
-            (Operation.CREATE, t2, 16, "John Travolta"),
-            (Operation.CREATE, t2, 17, "Liam Neeson"),
-            (Operation.CREATE, t2, 18, "Ralph Fiennes"),
-            (Operation.CREATE, t2, 19, "Ben Kingsley"),
-            (Operation.CREATE, t2, 20, "Leonardo DiCaprio")
-            (Operation.DELETE, t4, 13, "Robert Duvall"),
+            (Operation.CREATE, t2, 16, "John Travolta", "USA"),
+            (Operation.CREATE, t2, 17, "Liam Neeson", "Ireland"),
+            (Operation.CREATE, t2, 18, "Ralph Fiennes", "UK"),
+            (Operation.CREATE, t2, 19, "Ben Kingsley", "UK"),
+            (Operation.CREATE, t2, 20, "Leonardo DiCaprio", "USA")
+            (Operation.DELETE, t4, 13, "Robert Duvall", "USA"),
         ],
         [
-            (Operation.DELETE, t5, 14, "John Marley"),
+            (Operation.DELETE, t5, 14, "John Marley", "USA"),
         ]
     ]
 
     return [
-        spark.createDataFrame(b, [Columns.OPERATION, Columns.LOAD_DATE, "id", "name"]) \
+        spark.createDataFrame(b, [Columns.OPERATION, Columns.LOAD_DATE, "id", "name", "country"]) \
         .withColumn(Columns.HKEY, DataVaultFunctions.hash(["name", "year"])) for b in data
     ]
 
