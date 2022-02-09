@@ -8,10 +8,6 @@ from typing import List
 from chispa import *
 from delta.tables import *
 
-# import pyspark.sql.functions as F
-# from org.apache.spark.sql import SparkSession
-# from org.apache.spark.sql import DataFrame
-
 import numpy as np
 import pandas as pd
 from pandas import DataFrame
@@ -50,7 +46,15 @@ def add_hash_column(df: DataFrame, columns: List, name=Columns.HKEY):
     return df
 
 
-# def create_movies(spark: SparkSession) -> DataFrame:
+def create_dataframe(data: List, columns: List, hash_columns: List, name=Columns.HKEY):
+    return [
+        add_hash_column(pd.DataFrame(b, columns=columns), hash_columns, name) \
+        if b.size != 0 \
+        else add_hash_column(pd.DataFrame(columns=columns), hash_columns, name) \
+        for b in data
+    ]
+
+
 def create_movies() -> List[DataFrame]:
     columns = [Columns.OPERATION, Columns.LOAD_DATE, "id", "name", "year", "director", "rating", "rank"]
     hash_columns = ["name", "year"]
@@ -71,29 +75,19 @@ def create_movies() -> List[DataFrame]:
             (Operation.UPDATE, t4, 3, "The Godfather", 1972, "Francis Ford Coppola", 9.1, 96),
             (Operation.UPDATE, t4, 5, "Schindler's List", 1993, "Steven Spielberg", 8.8, 125),
             (Operation.DELETE, t4, 1, "Star Wars: Episode V", 1980, "Irvin Kershner", 8.4, 500),
+            (Operation.UPDATE, t4, 5, "The Shawshank Redemption", 1994, "Frank Darabont", 9.6, 2),
             (Operation.DELETE, t4, 1, "The Dark Knight", 2008, "Christopher Nolan", 9.1, 97)
         ]),
         np.array([
-            (Operation.UPDATE, t5, 5, "The Shawshank Redemption", 1994, "Frank Darabont", 9.1, 69),
             (Operation.UPDATE, t5, 3, "The Godfather", 1972, "Francis Ford Coppola", 8.9, 103),
             (Operation.UPDATE, t5, 5, "Schindler's List", 1993, "Steven Spielberg", 8.3, 210),
-            (Operation.CREATE, t5, 1, "Star Wars: Episode V", 1980, "Irvin Kershner", 8.4, 500)
+            (Operation.CREATE, t5, 1, "Star Wars: Episode V", 1980, "Irvin Kershner", 8.4, 500),
+            (Operation.UPDATE, t5, 5, "The Shawshank Redemption", 1994, "Frank Darabont", 9.5, 3)
         ])
     ]
-
-    # return [
-    #     spark.createDataFrame(b, columns) \
-    #     .withColumn(Columns.HKEY, DataVaultFunctions.hash(["name", "year"])) for b in data
-    # ]
-    return [
-        add_hash_column(pd.DataFrame(b, columns=columns), hash_columns) \
-        if b.size != 0 \
-        else add_hash_column(pd.DataFrame(columns=columns), hash_columns) \
-        for b in data
-    ]
+    return create_dataframe(data, columns, hash_columns)
 
 
-# def create_actors(spark: SparkSession) -> DataFrame:
 def create_actors() -> List[DataFrame]:
     columns = [Columns.OPERATION, Columns.LOAD_DATE, "id", "name", "country"]
     hash_columns = ["name"]
@@ -127,20 +121,9 @@ def create_actors() -> List[DataFrame]:
             (Operation.DELETE, t5, 14, "John Marley", "USA")
         ])
     ]
-
-    # return [
-    #     spark.createDataFrame(b, [Columns.OPERATION, Columns.LOAD_DATE, "id", "name", "country"]) \
-    #     .withColumn(Columns.HKEY, DataVaultFunctions.hash(["name", "year"])) for b in data
-    # ]
-    return [
-        add_hash_column(pd.DataFrame(b, columns=columns), hash_columns) \
-        if b.size != 0 \
-        else add_hash_column(pd.DataFrame(columns=columns), hash_columns) \
-        for b in data
-    ]
+    return create_dataframe(data, columns, hash_columns)
 
 
-# def create_castings(spark: SparkSession) -> DataFrame:
 def create_castings() -> List[DataFrame]:
     columns = [Columns.OPERATION, Columns.LOAD_DATE, "movie_id", "actor_id"]
     hash_columns = ["movie_id", "actor_id"]
@@ -168,64 +151,113 @@ def create_castings() -> List[DataFrame]:
         ]),
         np.array([])
     ]
+    return create_dataframe(data, columns, hash_columns)
 
-    # return [
-    #     spark.createDataFrame(b, [Columns.OPERATION, Columns.LOAD_DATE, "movie_id", "actor_id"]) \
-    #     .withColumn(Columns.HKEY, DataVaultFunctions.hash(["name", "year"])) for b in data
-    # ]
-    return [
-        add_hash_column(pd.DataFrame(b, columns=columns), hash_columns) \
-        if b.size != 0 \
-        else add_hash_column(pd.DataFrame(columns=columns), hash_columns) \
-        for b in data
-    ]
 
 def load_df_hub_movies():
-    hub_movies_columns = [Columns.LOAD_DATE, "name", "year"]
+    columns = [Columns.LOAD_DATE, "name", "year"]
     hash_columns = ["name", "year"]
-    data = np.array([
-        (t0, "The Shawshank Redemption", 1994)
-    ])
-    return add_hash_column(pd.DataFrame(data, columns=hub_movies_columns), hash_columns)
+    data = [
+        np.array([
+            (t0, "The Shawshank Redemption", 1994)
+        ]),
+        np.array([
+            (t0, "The Shawshank Redemption", 1994)
+        ]),
+        np.array([
+            (t0, "The Shawshank Redemption", 1994)
+        ]),
+    ]
+    return create_dataframe(data, columns, hash_columns)
 
 def load_df_hub_actors():
-    hub_actors_columns = [Columns.LOAD_DATE, "name"]
+    columns = [Columns.LOAD_DATE, "name"]
     hash_columns = ["name"]
-    data = np.array([
-        (t0, "Tim Robbins"),
-        (t0, "Morgan Freeman"),
-        (t0, "Bob Gunton"),
-    ])
-    return add_hash_column(pd.DataFrame(data, columns=hub_actors_columns), hash_columns)
+    data = [
+        np.array([
+            (t0, "Tim Robbins"),
+            (t0, "Morgan Freeman"),
+            (t0, "Bob Gunton")
+        ]),
+        np.array([
+            (t0, "Tim Robbins"),
+            (t0, "Morgan Freeman"),
+            (t0, "Bob Gunton")
+        ]),
+        np.array([
+            (t0, "Tim Robbins"),
+            (t0, "Morgan Freeman"),
+            (t0, "Bob Gunton")
+        ])
+    ]
+    return create_dataframe(data, columns, hash_columns)
 
 def load_df_link_castings():
-    link_castings_columns = [Columns.LOAD_DATE, "hkey_movie", "hkey_actor"]
+    columns = [Columns.LOAD_DATE, "hkey_movie", "hkey_actor"]
     hash_columns = ["hkey_movie", "hkey_actor"]
-    data = np.array([
-        (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "81715b3264ddc5350ac93b11042fae9c"),
-        (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "956823024e15c3127dea8150feb4512d"),
-        (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "95396cf2dcf8a21b7d1d232f6c38daea")
-    ])
-    return add_hash_column(pd.DataFrame(data, columns=link_castings_columns), hash_columns)
+    data = [
+        np.array([
+            (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "81715b3264ddc5350ac93b11042fae9c"),
+            (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "956823024e15c3127dea8150feb4512d"),
+            (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "95396cf2dcf8a21b7d1d232f6c38daea")
+        ]),
+        np.array([
+            (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "81715b3264ddc5350ac93b11042fae9c"),
+            (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "956823024e15c3127dea8150feb4512d"),
+            (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "95396cf2dcf8a21b7d1d232f6c38daea")
+        ]),
+        np.array([
+            (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "81715b3264ddc5350ac93b11042fae9c"),
+            (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "956823024e15c3127dea8150feb4512d"),
+            (t0, "53c3e1b92b41b1d9bc78de9e48c37a14", "95396cf2dcf8a21b7d1d232f6c38daea")
+        ])
+    ]
+    return create_dataframe(data, columns, hash_columns)
     
 
 def load_df_sat_movies():
-    sat_movies_columns = [Columns.HKEY, Columns.LOAD_DATE, "id", "director", "rating", "rank"]
-    hash_columns = sat_movies_columns
-    data = np.array([
-        ("53c3e1b92b41b1d9bc78de9e48c37a14", t0, 1, "Frank Darabont", 9.3, 64),
-    ])
-    return add_hash_column(pd.DataFrame(data, columns=sat_movies_columns), hash_columns, name=Columns.HDIFF)
+    columns = [Columns.HKEY, Columns.LOAD_DATE, "id", "director", "rating", "rank"]
+    hash_columns = columns
+    data = [
+        np.array([
+            ("53c3e1b92b41b1d9bc78de9e48c37a14", t0, 1, "Frank Darabont", 9.3, 64)
+        ]),
+        np.array([
+            ("53c3e1b92b41b1d9bc78de9e48c37a14", t0, 1, "Frank Darabont", 9.3, 64),
+            ("53c3e1b92b41b1d9bc78de9e48c37a14", t3, 1, "Frank Darabont", 9.2, 67),
+            ("53c3e1b92b41b1d9bc78de9e48c37a14", t4, 1, "Frank Darabont", 9.6, 2)
+        ]),
+        np.array([
+            ("53c3e1b92b41b1d9bc78de9e48c37a14", t0, 1, "Frank Darabont", 9.3, 64),
+            ("53c3e1b92b41b1d9bc78de9e48c37a14", t3, 1, "Frank Darabont", 9.2, 67),
+            ("53c3e1b92b41b1d9bc78de9e48c37a14", t4, 1, "Frank Darabont", 9.6, 2),
+            ("53c3e1b92b41b1d9bc78de9e48c37a14", t5, 1, "Frank Darabont", 9.5, 3)
+        ])
+    ]
+    return create_dataframe(data, columns, hash_columns, name=Columns.HDIFF)
 
 def load_df_sat_actors():
-    sat_actors_columns = [Columns.HKEY, Columns.LOAD_DATE, "country"]
-    hash_columns = sat_actors_columns
-    data = np.array([
-        ("81715b3264ddc5350ac93b11042fae9c", t0, "USA"),
-        ("956823024e15c3127dea8150feb4512d", t0, "USA"),
-        ("95396cf2dcf8a21b7d1d232f6c38daea", t0, "USA"),
-    ])
-    return add_hash_column(pd.DataFrame(data, columns=sat_actors_columns), hash_columns, name=Columns.HDIFF)
+    columns = [Columns.HKEY, Columns.LOAD_DATE, "country"]
+    hash_columns = columns
+    data = [
+        np.array([
+            ("81715b3264ddc5350ac93b11042fae9c", t0, "USA"),
+            ("956823024e15c3127dea8150feb4512d", t0, "USA"),
+            ("95396cf2dcf8a21b7d1d232f6c38daea", t0, "USA")
+        ]),
+        np.array([
+            ("81715b3264ddc5350ac93b11042fae9c", t0, "USA"),
+            ("956823024e15c3127dea8150feb4512d", t0, "USA"),
+            ("95396cf2dcf8a21b7d1d232f6c38daea", t0, "USA")
+        ]),
+        np.array([
+            ("81715b3264ddc5350ac93b11042fae9c", t0, "USA"),
+            ("956823024e15c3127dea8150feb4512d", t0, "USA"),
+            ("95396cf2dcf8a21b7d1d232f6c38daea", t0, "USA")
+        ])
+    ]
+    return create_dataframe(data, columns, hash_columns, name=Columns.HDIFF)
+
 
 # def prepare_hub(staging: DataFrame, business_key_columns: List[str]) -> DataFrame:
 #     # Löschen getrennt behandeln 
@@ -236,125 +268,113 @@ def load_df_sat_actors():
 #         .agg(F.min(F.col("l.load_date")).alias("load_date"), F.max(F.col("l.load_date")).alias("last_seen_date")) \
 
 
-# def test_datavault_transformatios(spark: SparkSession):
 def test_datavault_transformatios():
-    # Tables: movies, actors, castings
-    # df_movies: List[DataFrame] = create_movies(spark)
-    # df_actors: List[DataFrame] = create_actors(spark)
-    # df_castings: List[DataFrame] = create_castings(spark)
     df_movies: List[DataFrame] = create_movies()
     df_actors: List[DataFrame] = create_actors()
     df_castings: List[DataFrame] = create_castings()
-    print(df_movies)
-    print(df_actors)
 
-    # # Initial snapshots
-    # df_hub_movies = pysparkvault.load_hub(spark, 'HUB__movies', df_movies[0], t0, ['name', 'year'], 'some source')
-    # df_hub_actors = pysparkvault.load_hub(spark, 'HUB__actors', df_actors[0], t0, ['name'], 'some source')
-
-    # df_link_castings = pysparkvault.load_link(spark, 'LINK__castings', df_castings[0], t0, [df_movies[0], df_actors[0]])
-
-    # df_sat_movies = pysparkvault.load_satellite(spark, 'SAT__movies', df_movies[0], t0, ['name', 'year'])
-    # df_sat_actors = pysparkvault.load_satellite(spark, 'SAT__actors', df_actors[0], t0, ['name'])
-
-    # Sample data
+    # Load sample data
     df_hub_movies = load_df_hub_movies()
     df_hub_actors = load_df_hub_actors()
     df_link_castings = load_df_link_castings()
     df_sat_movies = load_df_sat_movies()
     df_sat_actors = load_df_sat_actors()
 
+    # Initial Snapshot
     # HUB_movies "The Shawshank Redemption", 1994 -> Exists
     movie = df_movies[0].iloc[0]
-    assert df_hub_movies.query(f'{Columns.HKEY} == "{movie["hkey"]}"').shape[0] == 1, \
-        f'The movie {movie["name"]}, directed by {movie["director"]} was not found.'
+    assert df_hub_movies[0].query(f'{Columns.HKEY} == "{movie["hkey"]}"').shape[0] == 1, \
+        f'The movie {movie["name"]}, directed by {movie["director"]} was not found or exists multiple times.'
 
-    # HUB_actors "John Travolta" -> Not exists
+    # HUB_movies "Pulp Fiction", 1994 -> Not exists
     movie = df_movies[1].iloc[0]
-    assert df_hub_movies.query(f'{Columns.HKEY} == "{movie["hkey"]}"').shape[0] == 0, \
+    assert df_hub_movies[0].query(f'{Columns.HKEY} == "{movie["hkey"]}"').shape[0] == 0, \
         f'The movie {movie["name"]} was found, although it does not exist yet.'
 
     # HUB_actors "Tim Robbins" -> Exists
     actor = df_actors[0].iloc[0]
-    assert df_hub_actors.query(f'{Columns.HKEY} == "{actor["hkey"]}"').shape[0] == 1, \
-        f'The actor {actor["name"]} was not found.'
+    assert df_hub_actors[0].query(f'{Columns.HKEY} == "{actor["hkey"]}"').shape[0] == 1, \
+        f'The actor {actor["name"]} was not found or exists multiple times.'
     
     # HUB_actors "John Travolta" -> Not exists
     actor = df_actors[1].iloc[0]
-    assert df_hub_actors.query(f'{Columns.HKEY} == "{actor["hkey"]}"').shape[0] == 0, \
+    assert df_hub_actors[0].query(f'{Columns.HKEY} == "{actor["hkey"]}"').shape[0] == 0, \
         f'The actor {actor["name"]} was found, although he/she does not exist yet.'
 
     # LINK "The Shawshank Redemption", 1994 -> "Tim Robbins" -> Exists
+    casting = df_castings[0].iloc[0]
+    movie = df_movies[0].query(f'id == {int(casting["movie_id"])}')
+    actor = df_actors[0].query(f'id == {int(casting["actor_id"])}')
+    assert df_link_castings[0].query(f'hkey_movie == "{movie["hkey"][0]}" and hkey_actor == "{actor["hkey"][0]}"').shape[0] == 1, \
+        f'{actor["name"][0]} was not casted in {movie["name"][0]} or the link exists multiple times.'
+
+    # LINK "Pulp Fiction", 1994, "John Travolta" -> Not exists yet
+    casting = df_castings[1].iloc[0]
+    movie = df_movies[1].query(f'id == {int(casting["movie_id"])}')
+    actor = df_actors[1].query(f'id == {int(casting["actor_id"])}')
+    assert df_link_castings[0].query(f'hkey_movie == "{movie["hkey"][0]}" and hkey_actor == "{actor["hkey"][0]}"').shape[0] == 0, \
+        f'{actor["name"][0]} was not casted in {movie["name"][0]}.'
+
+    # SAT_movies "The Shawshank Redemption", 1994, 9,1
     movie = df_movies[0].iloc[0]
+    rating = df_sat_movies[0].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rating"][0]
+    assert rating == movie["rating"], \
+        f'The queried rating of {movie["name"]} was {rating}. Correct would be {movie["rating"]}.'
+
+    # SAT_movies "The Shawshank Redemption", 1994, 64
+    movie = df_movies[0].iloc[0]
+    rank = df_sat_movies[0].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rank"][0]
+    assert rank == movie["rank"], \
+        f'The queried rating of {movie["name"]} was {rank}. Correct would be {movie["rating"]}.'
+
+    # SAT_actors "Tim Robbins", "USA"
     actor = df_actors[0].iloc[0]
-    assert df_link_castings.query(f'hkey_movie == "{movie["hkey"]}" and hkey_actor == "{actor["hkey"]}"').shape[0] == 1, \
-        f'{actor["name"]} was not casted in {movie["name"]}.'
+    country = df_sat_actors[0].query(f'hkey == "{actor["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["country"][0]
+    assert country == actor["country"], \
+        f'The queried country of {actor["name"]} was {country}. Correct would be {actor["country"]}.'
 
-    # LINK "Star Wars: Episode V", 1980, "Al Pacino" -> Not exists
-    movie = df_movies[0].iloc[3]
-    actor = df_actors[0].iloc[5]
-    assert df_link_castings.query(f'hkey_movie == "{movie["hkey"]}" and hkey_actor == "{actor["hkey"]}"').shape[0] == 0, \
-        f'{actor["name"]} was not casted in {movie["name"]}.'
+    # Day 1
+    # SAT_movies "The Shawshank Redemption", 1994, 9,6
+    movie = df_movies[1].iloc[9]
+    prev_movie = df_movies[1].iloc[5]
+    rating = df_sat_movies[1].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rating"][0]
+    prev_rating = df_sat_movies[1].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rating"][1]
+    assert rating == movie["rating"], \
+        f'The queried rating of {movie["name"]} was {rating}. Correct would be {movie["rating"]}.'
+    assert prev_rating == prev_movie["rating"], \
+        f'The queried previous rating of {prev_movie["name"]} was {prev_rating}. Correct would be {prev_movie["rating"]}.'
 
-    # # SAT_movies "The Shawshank Redemption", 1994, 9,1
-    # assert df_hub_movies.query == df_movies[0][0][6], f'The queried rating of {df_movies[0][0][3]} is {df_hub_movies.query}. Correct would be {df_movies[0][0][6]}.'
-
-    # # SAT_movies "The Shawshank Redemption", 1994, 64
-    # assert df_hub_movies.query == df_movies[0][0][7], f'The queried rank of {df_movies[0][0][3]} is {df_hub_movies.query}. Correct would be {df_movies[0][0][7]}.'
-
-    # # SAT_actors "William Sadler", "USA"
-    # assert df_hub_actors.query == df_hub_actors[0][3][4], f'The queried country of {df_hub_actors[0][3][3]} is {df_hub_actors.query}. Correct would be {df_hub_actors[0][3][4]}.'
+    # SAT_movies "The Shawshank Redemption", 1994, 2
+    movie = df_movies[1].iloc[9]
+    prev_movie = df_movies[1].iloc[5]
+    rank = df_sat_movies[1].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rank"][0]
+    prev_rank = df_sat_movies[1].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rank"][1]
+    assert rank == movie["rank"], \
+        f'The queried rank of {movie["name"]} was {rank}. Correct would be {movie["rank"]}.'
+    assert prev_rank == prev_movie["rank"], \
+        f'The queried previous rank of {prev_movie["name"]} was {prev_rank}. Correct would be {prev_movie["rank"]}.'
     
-    # # count_movies = 4
-    # assert df_hub_movies.query.count() == 4, f'Number of queried movies: {df_hub_movies.query.count()} Correct would be 4.'
-    
-    # # count_actors = 15
-    # assert df_hub_actors.query.count() == 15, f'Number of queried actors: {df_hub_actors.query.count()} Correct would be 15.'
-    
-    # # count_links = 12
-    # assert df_link_castings.query.count() == 12, f'Number of queried links: {df_link_castings.query.count()} Correct would be 12.'
+    # # Day 2
+    # SAT_movies "The Shawshank Redemption", 1994, 9,5
+    movie = df_movies[2].iloc[3]
+    prev_movie = df_movies[1].iloc[9]
+    rating = df_sat_movies[2].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rating"][0]
+    prev_rating = df_sat_movies[2].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rating"][1]
+    print(rating)
+    assert rating == movie["rating"], \
+        f'The queried rating of {movie["name"]} was {rating}. Correct would be {movie["rating"]}.'
+    assert prev_rating == prev_movie["rating"], \
+        f'The queried previous rating of {prev_movie["name"]} was {prev_rating}. Correct would be {prev_movie["rating"]}.'
 
-    # # Day 1
-    # df_hub_movies = pysparkvault.load_hub(spark, 'HUB__movies', df_movies[1], t4, ['name', 'year'], 'some source')
-    # df_hub_actors = pysparkvault.load_hub(spark, 'HUB__actors', df_actors[1], t4, ['name'], 'some source')
-
-    # df_link_castings = pysparkvault.load_link(spark, 'LINK__castings', df_castings[1], t4, [df_movies[0], df_actors[0]])
-
-    # df_sat_movies = pysparkvault.load_satellite(spark, 'SAT__movies', df_movies[1], t4, ['name', 'year'])
-    # df_sat_actors = pysparkvault.load_satellite(spark, 'SAT__actors', df_actors[1], t4, ['name'])
-
-    # Assert content
-    # HUB_movies "Schindler's List", 1993 -> Exists
-    # HUB_movies "Pulp Fiction", 1994 -> Exists
-    # HUB_movies "Star Wars: Episode V", 1980 -> Not exists
-    # HUB_actors "Leonardo DiCaprio" -> Exists
-    # HUB_actors "Robert Duvall" -> Not exists
-    # LINK "Inception", 2010, "Leonardo DiCaprio" -> Exists
-    # SAT_movies "The Shawshank Redemption", 1994, 9,2
-    # SAT_movies "The Godfather", 1972, 96
-    # SAT_movies "Star Wars: Episode V", 1980 -> Not exists
-    # SAT_actors "Leonardo DiCaprio", "USA"
-    # count_movies = 5
-    # count_actors = 19
-    # count_links = 17
-
-    # Day 2
-    # df_hub_movies = pysparkvault.load_hub(spark, 'HUB__movies', df_movies[2], t5, ['name', 'year'], 'some source')
-    # df_hub_actors = pysparkvault.load_hub(spark, 'HUB__actors', df_actors[2], t5, ['name'], 'some source')
-
-    # df_link_castings = pysparkvault.load_link(spark, 'LINK__castings', df_castings[2], t5, [df_movies[0], df_actors[0]])
-
-    # df_sat_movies = pysparkvault.load_satellite(spark, 'SAT__movies', df_movies[2], t5, ['name', 'year'])
-    # df_sat_actors = pysparkvault.load_satellite(spark, 'SAT__actors', df_actors[2], t5, ['name'])
-
-    # Assert content
-    # HUB_movies "Star Wars: Episode V", 1980 -> Exists
-    # HUB_actors "John Marley" -> Not exists
-    # SAT_movies "The Godfather", 1972, 8.9
-    # SAT_movies "Schindler's List", 1993, 210
-    # count_movies = 6
-    # count_actors = 18
-    # count_links = 17
+    # SAT_movies "The Shawshank Redemption", 1994, 3
+    movie = df_movies[2].iloc[3]
+    prev_movie = df_movies[1].iloc[9]
+    rank = df_sat_movies[2].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rank"][0]
+    prev_rank = df_sat_movies[2].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rank"][1]
+    assert rank == movie["rank"], \
+        f'The queried rank of {movie["name"]} was {rank}. Correct would be {movie["rank"]}.'
+    assert prev_rank == prev_movie["rank"], \
+        f'The queried previous rank of {prev_movie["name"]} was {prev_rank}. Correct would be {prev_movie["rank"]}.'
 
 
 # def test_transform(spark: SparkSession):
