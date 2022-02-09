@@ -26,7 +26,9 @@ $ python -m pytest tests
 
 ## Test Data
 **Relational Schema**
+
 ![image](https://user-images.githubusercontent.com/62486916/153193425-a8337124-6ac6-441c-be21-f402025bb7af.png)
 
 **Data Vault Schema**
+
 ![image](https://user-images.githubusercontent.com/62486916/153193456-639ae7a1-8d07-439e-aceb-679da637ed2f.png)
