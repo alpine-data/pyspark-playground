@@ -237,23 +237,23 @@ def load_df_sat_movies():
     return create_dataframe(data, columns, hash_columns, name=Columns.HDIFF)
 
 def load_df_sat_actors():
-    columns = [Columns.HKEY, Columns.LOAD_DATE, "country"]
+    columns = [Columns.HKEY, Columns.LOAD_DATE, "id", "country"]
     hash_columns = columns
     data = [
         np.array([
-            ("81715b3264ddc5350ac93b11042fae9c", t0, "USA"),
-            ("956823024e15c3127dea8150feb4512d", t0, "USA"),
-            ("95396cf2dcf8a21b7d1d232f6c38daea", t0, "USA")
+            ("81715b3264ddc5350ac93b11042fae9c", t0, 1, "USA"),
+            ("956823024e15c3127dea8150feb4512d", t0, 2, "USA"),
+            ("95396cf2dcf8a21b7d1d232f6c38daea", t0, 3, "USA")
         ]),
         np.array([
-            ("81715b3264ddc5350ac93b11042fae9c", t0, "USA"),
-            ("956823024e15c3127dea8150feb4512d", t0, "USA"),
-            ("95396cf2dcf8a21b7d1d232f6c38daea", t0, "USA")
+            ("81715b3264ddc5350ac93b11042fae9c", t0, 1, "USA"),
+            ("956823024e15c3127dea8150feb4512d", t0, 2, "USA"),
+            ("95396cf2dcf8a21b7d1d232f6c38daea", t0, 3, "USA")
         ]),
         np.array([
-            ("81715b3264ddc5350ac93b11042fae9c", t0, "USA"),
-            ("956823024e15c3127dea8150feb4512d", t0, "USA"),
-            ("95396cf2dcf8a21b7d1d232f6c38daea", t0, "USA")
+            ("81715b3264ddc5350ac93b11042fae9c", t0, 1, "USA"),
+            ("956823024e15c3127dea8150feb4512d", t0, 2, "USA"),
+            ("95396cf2dcf8a21b7d1d232f6c38daea", t0, 3, "USA")
         ])
     ]
     return create_dataframe(data, columns, hash_columns, name=Columns.HDIFF)
@@ -360,7 +360,6 @@ def test_datavault_transformatios():
     prev_movie = df_movies[1].iloc[9]
     rating = df_sat_movies[2].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rating"][0]
     prev_rating = df_sat_movies[2].query(f'hkey == "{movie["hkey"]}"').sort_values(by=["load_date"], ascending=False, ignore_index=True)["rating"][1]
-    print(rating)
     assert rating == movie["rating"], \
         f'The queried rating of {movie["name"]} was {rating}. Correct would be {movie["rating"]}.'
     assert prev_rating == prev_movie["rating"], \
