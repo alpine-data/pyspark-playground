@@ -5,7 +5,7 @@ import pytest
 from pyspark.sql import SparkSession
 
 
-#@pytest.fixture(scope='session')
+@pytest.fixture(scope='session')
 def spark():
     dirpath = Path('spark-warehouse')
     if dirpath.exists() and dirpath.is_dir():
