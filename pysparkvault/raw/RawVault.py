@@ -1,3 +1,4 @@
+from datetime import datetime
 from json import load
 import pyspark.sql.functions as F
 
@@ -5,7 +6,7 @@ from delta.tables import *
 from pyspark.sql import DataFrame, Column
 from pyspark.sql.types import DataType
 from pyspark.sql.session import SparkSession
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from pyspark.sql.types import StringType, StructField, StructType,TimestampType
 
@@ -115,7 +116,7 @@ class DataVaultConventions:
 
         return f'{self.COLUMN_PREFIX}{self.LOAD_DATE}'
 
-    def load__end_date_column_name(self) -> str:
+    def load_end_date_column_name(self) -> str:
         """
         Return the column name for LOAD_END_DATE column including configured prefix.
         """
@@ -341,13 +342,18 @@ class RawVault:
             .select(
                 F.col(f'l.{self.conventions.hkey_column_name()}'), 
                 F.col(f'l.{self.conventions.load_date_column_name()}'), 
-                F.col(f'r.{self.conventions.load_date_column_name()}').alias(self.conventions.load__end_date_column_name())) \
+                F.col(f'r.{self.conventions.load_date_column_name()}').alias(self.conventions.load_end_date_column_name())) \
             .groupBy(
                 F.col(self.conventions.hkey_column_name()),
                 F.col(self.conventions.load_date_column_name())) \
             .agg(
-                F.min(self.conventions.load__end_date_column_name()).alias(self.conventions.load__end_date_column_name())
+                F.min(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name())
             ) \
+            .withColumn(
+                self.conventions.load_end_date_column_name(), 
+                F \
+                    .when(F.isnull(self.conventions.load_end_date_column_name()), datetime.max) \
+                    .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
             .write.mode('overwrite').saveAsTable(pit_table_name)
         
 
@@ -412,7 +418,7 @@ class RawVault:
         from_staging_foreign_key: ForeignKey, 
         link_table_name: str,
         from_hkey_column_name: str,
-        to_hkey_column_name) -> None:
+        to_hkey_column_name: str) -> None:
         """
         Loads a link for two linked source tables based on the prepared staging tables.
 
@@ -564,3 +570,152 @@ class RawVault:
         schema = StructType([ StructField(c.name, c.type, c.nullable) for c in columns ])
         df: DataFrame = self.spark.createDataFrame([], schema)
         df.write.mode('ignore').saveAsTable(f'{database}.{name}')
+
+
+class BusinessVault:
+
+    def __init__(self, spark: SparkSession, config: DataVaultConfiguration, conventions: DataVaultConventions = DataVaultConventions()) -> None:
+        self.spark = spark
+        self.config = config
+        self.conventions = conventions
+
+    def read_data_from_hub_sat_and_pit(self, hub_name: str, sat_name: str, pit_name: str, attributes: List[str], include_hkey: bool = False) -> DataFrame:
+        df_pit = self.spark.table(f"`{self.config.raw_database_name}`.`{pit_name}`")
+        df_sat = self.spark.table(f"`{self.config.raw_database_name}`.`{sat_name}`")
+        df_hub = self.spark.table(f"`{self.config.raw_database_name}`.`{hub_name}`")
+
+        hub_attributes = list(set(df_hub.columns) & set(attributes))
+        sat_attributes = list(set(df_sat.columns) & set(attributes))
+        hub_attributes = list([df_hub[column] for column in hub_attributes])
+        sat_attributes = list([df_sat[column] for column in sat_attributes])
+
+        if include_hkey:
+            hub_attributes = hub_attributes + [df_hub[self.conventions.hkey_column_name()]]
+
+        attribute_columns = hub_attributes + sat_attributes
+
+        return df_pit \
+            .join(df_sat, (
+                (df_pit[self.conventions.hkey_column_name()] == df_sat[self.conventions.hkey_column_name()]) & \
+                (df_pit[self.conventions.load_date_column_name()] == df_sat[self.conventions.load_date_column_name()]))) \
+            .join(df_hub, df_hub[self.conventions.hkey_column_name()] == df_pit[self.conventions.hkey_column_name()]) \
+            .select(attribute_columns + [df_pit[self.conventions.load_date_column_name()], df_pit[self.conventions.load_end_date_column_name()]]) \
+            .groupBy(attribute_columns) \
+            .agg(
+                F.min(self.conventions.load_date_column_name()).alias(self.conventions.load_date_column_name()), 
+                F.max(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name()))
+
+    def read_data_from_hub(self, name: str, attributes: List[str], include_hkey: bool = False) -> DataFrame:
+        name = self.conventions.remove_prefix(name)
+
+        hub_name = self.conventions.hub_name(name)
+        sat_name = self.conventions.sat_name(name)
+        pit_name = self.conventions.pit_name(name)
+
+        return self.read_data_from_hub_sat_and_pit(hub_name, sat_name, pit_name, attributes, include_hkey)
+
+    def zip_historized_dataframes(
+        self, left: DataFrame, right: DataFrame, on: Union[str, List[str], Column, List[Column]], how: str = 'inner',
+        left_load_date_column: Optional[str] = None, left_load_end_date_column: Optional[str] = None,
+        right_load_date_column: Optional[str] = None, right_load_end_date_column: Optional[str] = None,
+        load_date_column: Optional[str] = None, load_end_date_column: Optional[str] = None):
+
+        if left_load_date_column is None:
+            left_load_date_column = self.conventions.load_date_column_name()
+
+        if left_load_end_date_column is None:
+            left_load_end_date_column = self.conventions.load_end_date_column_name()
+
+        if right_load_date_column is None:
+            right_load_date_column = self.conventions.load_date_column_name()
+
+        if right_load_end_date_column is None:
+            right_load_end_date_column = self.conventions.load_end_date_column_name()
+
+        if load_date_column is None:
+            load_date_column = self.conventions.load_date_column_name()
+
+        if load_end_date_column is None:
+            load_end_date_column = self.conventions.load_end_date_column_name()
+
+        left_load_date_column_tmp = f"{left_load_date_column}__LEFT"
+        left_load_end_date_column_tmp = f"{left_load_end_date_column}__LEFT"
+
+        right_load_date_column_tmp = f"{right_load_date_column}__RIGHT"
+        right_load_end_date_column_tmp = f"{right_load_end_date_column}__RIGHT"
+
+        left = left \
+            .withColumnRenamed(left_load_date_column, left_load_date_column_tmp) \
+            .withColumnRenamed(left_load_end_date_column, left_load_end_date_column_tmp)
+
+        right = right \
+            .withColumnRenamed(right_load_date_column, right_load_date_column_tmp) \
+            .withColumnRenamed(right_load_end_date_column, right_load_end_date_column_tmp)
+
+        result = left \
+            .join(right, on, how=how)
+
+        result = result \
+            .filter(result[right_load_end_date_column_tmp] > result[left_load_date_column_tmp]) \
+            .filter(result[left_load_end_date_column_tmp] > result[right_load_date_column_tmp]) \
+            .withColumn(
+                load_date_column, 
+                F.greatest(result[left_load_date_column_tmp], result[right_load_date_column_tmp])) \
+            .withColumn(
+                load_end_date_column,
+                F.least(result[left_load_end_date_column_tmp], result[right_load_end_date_column_tmp]))
+        
+        result = result \
+            .drop(left_load_date_column_tmp) \
+            .drop(left_load_end_date_column_tmp) \
+            .drop(right_load_date_column_tmp) \
+            .drop(right_load_end_date_column_tmp)
+
+        return result
+
+    def join_linked_hubs(
+        self, 
+        from_name: str, 
+        to_name: str, 
+        link_table_name: str,
+        from_hkey_column_name: str,
+        to_hkey_column_name: str,
+        from_attributes: List[str],
+        to_attributes: List[str],
+        remove_hkeys: bool = False) -> DataFrame:
+
+        from_df = self.read_data_from_hub(from_name, from_attributes, True)
+        to_df = self.read_data_from_hub(to_name, to_attributes, True)
+
+        return self.join_linked_dataframes(from_df, to_df, link_table_name, from_hkey_column_name, to_hkey_column_name, remove_hkeys)
+
+    def join_linked_dataframes(
+        self,
+        from_df: DataFrame,
+        to_df: DataFrame,
+        link_table_name: str,
+        from_hkey_column_name: str,
+        to_hkey_column_name: str,
+        remove_hkeys: bool = False) -> DataFrame:
+
+        link_table_name = self.conventions.link_name(link_table_name)
+        lnk_df = self.spark.table(f"`{self.config.raw_database_name}`.`{link_table_name}`")
+
+        result = self \
+            .zip_historized_dataframes(
+                lnk_df \
+                    .drop(lnk_df[self.conventions.load_date_column_name()]) \
+                    .join(from_df, lnk_df[from_hkey_column_name] == from_df[self.conventions.hkey_column_name()]),
+                to_df,
+                lnk_df[to_hkey_column_name] == to_df[self.conventions.hkey_column_name()])
+
+        if remove_hkeys:
+            result = result \
+                .drop(lnk_df[self.conventions.hkey_column_name()]) \
+                .drop(lnk_df[self.conventions.record_source_column_name()]) \
+                .drop(lnk_df[from_hkey_column_name]) \
+                .drop(lnk_df[to_hkey_column_name]) \
+                .drop(from_df[self.conventions.hkey_column_name()]) \
+                .drop(to_df[self.conventions.hkey_column_name()])
+
+        return result
