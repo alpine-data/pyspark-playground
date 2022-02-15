@@ -53,8 +53,11 @@ class LoadedTables(TypedDict):
 def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
     """
     Creates some sample test data. The return list is a list of loaded cdc batches from the source tables.
+
+    :param spark - The active spark session.
     """
 
+    # define schemas
     schema_movies = StructType([
         StructField(DV_CONV.CDC_OPERATION, StringType(), False),
         StructField(DV_CONV.LOAD_DATE, TimestampType(), False),
@@ -81,6 +84,7 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
         StructField("ACTOR_ID", StringType(), False)
     ])
 
+    # define data
     movies = [
         [
             (Operation.SNAPSHOT, T_0, 1, "The Shawshank Redemption", 1994, "Frank Darabont", 9.3, 64),
@@ -167,6 +171,7 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
         ]
     ]
 
+    # returns a list that contains a LoadedTables object for each batch
     return [
         LoadedTables(
             movies=spark.createDataFrame(movies[i], schema_movies),
@@ -178,6 +183,13 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
 
 
 def write_parquet_files(data: List[LoadedTables], staging_base_path: str) -> None:
+    """
+    Writes a list of LoadedTables objects to .parquet files at the given path.
+
+    :param data - The list of LoadedTables objects.
+    :param staging_base_path - The staging path that defines where to store the .parquet files.
+    """
+
     for i, batch in enumerate(data):
         batch["movies"].write.mode('overwrite').parquet(f"{staging_base_path}/{STAGING_TABLE_NAME_MOVIES}_{i}.parquet")
         batch["actors"].write.mode('overwrite').parquet(f"{staging_base_path}/{STAGING_TABLE_NAME_ACTORS}_{i}.parquet")
@@ -185,7 +197,15 @@ def write_parquet_files(data: List[LoadedTables], staging_base_path: str) -> Non
 
 
 def stage_tables(raw_vault: RawVault, staging_base_path: str) -> None:
+    """
+    Stages all source tables from the given path.
+
+    :param raw_vault - The RawVault object needed for calling the stage_table(...) function.
+    :param staging_base_path - The path of the source tables.
+    """
+
     for f in listdir(staging_base_path):
+        # remove the file ending and extract the batch number
         i = f.replace(".parquet", "").split("_")[-1]
         if SOURCE_TABLE_NAME_MOVIES in f:
             raw_vault.stage_table(f"{STAGING_TABLE_NAME_MOVIES}_{i}", f, HKEY_COLUMNS_MOVIES)
@@ -196,6 +216,12 @@ def stage_tables(raw_vault: RawVault, staging_base_path: str) -> None:
 
             
 def create_data_vault_tables(raw_vault: RawVault) -> None:
+    """
+    Creates empty tables for hubs, links, and satellites.
+
+    :param raw_vault - The RawVault object needed for creating hubs, links, and satellites.
+    """
+
     # create hubs
     raw_vault.create_hub(SOURCE_TABLE_NAME_MOVIES, [
         ColumnDefinition("NAME", StringType()),
@@ -224,6 +250,13 @@ def create_data_vault_tables(raw_vault: RawVault) -> None:
 
 
 def load_from_prepared_staging_table(raw_vault: RawVault, batch: int):
+    """
+    Loads cdc data into hubs, links, and satellites.
+
+    :param raw_vault - The RawVault object needed for loading cdc data into hubs, links, and satellites.
+    :param batch - The number of the batch to be loaded.
+    """
+
     # load hubs and satellites
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_MOVIES}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES), HKEY_COLUMNS_MOVIES, 
@@ -243,6 +276,12 @@ def load_from_prepared_staging_table(raw_vault: RawVault, batch: int):
 
 
 def test_datavault_transformatios(spark: SparkSession):
+    """
+    Executes several test cases for loading cdc data batches into Data Vault tables.
+
+    :param spark - The active spark session.
+    """
+
     # create sample data
     data: List[LoadedTables] = create_sample_data(spark)
 
