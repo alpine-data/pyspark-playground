@@ -470,25 +470,27 @@ class RawVault:
         columns = [self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), self.conventions.record_source_column_name()] \
             + [ link.hkey_column_name for link in links ]
 
-        link_df = self.spark.table(link_table_name)
-
         staged_df = self.spark.table(f'{self.config.staging_prepared_database_name}.{staging_table_name}') \
             .select([ link.foreign_key.column for link in links ])
-
+        
         for link in links:
             link_df = self.spark.table(f'{self.config.staging_prepared_database_name}.{link.foreign_key.to.table}') \
                 .withColumnRenamed(self.conventions.hkey_column_name(), link.hkey_column_name) \
-                .select([link.foreign_key.column, link.hkey_column_name])
+                .select([link.foreign_key.to.column, link.hkey_column_name])
 
             staged_df = staged_df \
                 .join(link_df, link_df[link.foreign_key.to.column] == staged_df[link.foreign_key.column], how='left')
+
+        link_df = self.spark.table(link_table_name)
 
         staged_df = staged_df \
             .select([ link.hkey_column_name for link in links ]) \
             .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([ link.hkey_column_name for link in links ])) \
             .withColumn(self.conventions.load_date_column_name(), F.current_timestamp()) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
-            .distinct() \
+            .distinct()
+        
+        staged_df = staged_df \
             .join(link_df, link_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], how='left_anti') \
             .select(columns) \
             .write.mode('append').saveAsTable(link_table_name)
