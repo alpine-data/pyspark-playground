@@ -48,13 +48,14 @@ class DataVaultFunctions:
 class DataVaultConventions:
 
     def __init__(
-        self,  column_prefix = '$__', hub = 'HUB__', link = 'LNK__', sat = 'SAT__', pit = 'PIT__',
+        self,  column_prefix = '$__', hub = 'HUB__', link = 'LNK__', ref = 'REF__', sat = 'SAT__', pit = 'PIT__',
         hkey = 'HKEY', hdiff = 'HDIFF', load_date = 'LOAD_DATE', load_end_date = 'LOAD_END_DATE', record_source = 'RECORD_SOURCE',
-        cdc_operation = 'OPERATION') -> None:
+        ref_group = 'GROUP', deleted = 'DELETED', valid_from = 'VALID_FROM', valid_to = 'VALID_TO', cdc_operation = 'OPERATION') -> None:
         
         self.COLUMN_PREFIX = column_prefix
         self.HUB = hub
         self.LINK = link
+        self.REF = ref
         self.SAT = sat
         self.PIT = pit
         self.HKEY = hkey
@@ -62,6 +63,10 @@ class DataVaultConventions:
         self.LOAD_DATE = load_date
         self.LOAD_END_DATE = load_end_date
         self.RECORD_SOURCE = record_source
+        self.REF_GROUP = ref_group
+        self.DELETED = deleted
+        self.VALID_FROM = valid_from
+        self.VALID_TO = valid_to
         self.CDC_OPERATION = cdc_operation
 
     def cdc_operation_column_name(self) -> str:
@@ -151,13 +156,33 @@ class DataVaultConventions:
         return name \
             .replace(self.HUB, '') \
             .replace(self.LINK, '') \
+            .replace(self.REF, '') \
             .replace(self.SAT, '') \
             .replace(self.PIT, '')
+
+    def ref_group_column_name(self) -> str:
+        """
+        Returns the column name for group column of shared reference tables.
+        """
+        return f'{self.COLUMN_PREFIX}{self.REF_GROUP}'
+
+    def ref_name(self, name: str) -> str:
+        """
+        Returns a name of a REF (reference) table, base on the base name.  This method ensures, that the name is prefixed with the configured
+        reference prefix. If the prefix is already present, it will not be added.
+        """
+
+        name = name.upper()
+
+        if name.startswith(self.REF):
+            return name
+        else:
+            return f'{self.REF}{name}'
 
     def sat_name(self, name: str) -> str:
         """
         Returns a name of a SAT (satellite) table, based on the base name. This method ensures, that the name is prefixed with the configured
-        hub prefix. If the prefix is already present, it will not be added.
+        satellite prefix. If the prefix is already present, it will not be added.
         """
 
         name = name.upper()
@@ -166,6 +191,20 @@ class DataVaultConventions:
             return name
         else:
             return f'{self.SAT}{name}'
+
+    def valid_from_column_name(self) -> str:
+        """
+        Return the column name for VALID_FROM column including configured prefix.
+        """
+
+        return f'{self.COLUMN_PREFIX}{self.VALID_FROM}'
+
+    def valid_to_column_name(self) -> str:
+        """
+        Return the column name for VALID_TO column including configured prefix.
+        """
+
+        return f'{self.COLUMN_PREFIX}{self.VALID_TO}'
 
 
 class DataVaultConfiguration:
@@ -277,15 +316,6 @@ class RawVault:
         self.config = config
         self.conventions = conventions
 
-    def create_satellite_definition(self, sat_table_name: str, attributes: List[str]) -> SatelliteDefinition:
-        """
-        Creates a definition how a setllite is derived.
-
-        :param sat_table_name - The name of the satellite table in the raw vault.
-        :param attributes - The name of the columns/ attributes as in source table and satellite table.
-        """
-        return SatelliteDefinition(self.conventions.sat_name(sat_table_name), attributes)
-
     def create_hub(self, name: str, business_key_columns: List[ColumnDefinition]) -> None:
         """
         Creates a hub table in the raw database. Does only create the table if it does not exist yet.
@@ -357,9 +387,45 @@ class RawVault:
             .write.mode('overwrite').saveAsTable(pit_table_name)
         
 
+    def create_reference_table(self, name: str, id_column: ColumnDefinition, attribute_columns: List[ColumnDefinition]) -> None:
+        """
+        Creates a reference table in the raw vault. Does only create the table if it does not exist yet.
+
+        :param name - The name of the reference table, usually starting with `REF__`.
+        :param id_column - The definition of the column which is used as a key for the reference table.
+        :param attribute_columns - The attributes which should be stored in the reference table.
+        """
+
+        columns: List[ColumnDefinition] = [
+            ColumnDefinition(self.conventions.hdiff_column_name(), StringType()),
+            ColumnDefinition(self.conventions.load_date_column_name(), TimestampType()),
+            id_column
+        ] + attribute_columns
+
+        self.__create_external_table(self.config.raw_database_name, self.conventions.ref_name(name), columns)
+
+    def create_code_reference_table(self, name: str, id_column: ColumnDefinition, attribute_columns: List[ColumnDefinition]) -> None:
+        """
+        Creates a special reference table in the raw vault. This reference table may be used for a set of reference tables which have a similar schema (code reference tables). 
+        Does only create the table if it does not exist yet.
+
+        :param name - The name of the reference table, usually starting with `REF__`.
+        :param id_column - The definition of the column which is used as a key for the reference table.
+        :param attribute_columns - The attributes which should be stored in the reference table.
+        """
+
+        columns: List[ColumnDefinition] = [
+            ColumnDefinition(self.conventions.ref_group_column_name(), StringType()),
+            ColumnDefinition(self.conventions.hdiff_column_name(), StringType()),
+            ColumnDefinition(self.conventions.load_date_column_name(), TimestampType()),
+            id_column,
+        ] + attribute_columns
+
+        self.__create_external_table(self.config.raw_database_name, self.conventions.ref_name(name), columns)
+
     def create_satellite(self, name: str, attribute_columns: List[ColumnDefinition]) -> None:
         """
-        Creates a satellite table in the raw database. Does only create the table if it does not exist yet.
+        Creates a satellite table in the raw vault. Does only create the table if it does not exist yet.
 
         :param name - The name of the satellite table, usually starting with `SAT__`.
         :param attribute_columns - The attributes which should be stored in the satellite.
@@ -495,6 +561,65 @@ class RawVault:
             .select(columns) \
             .write.mode('append').saveAsTable(link_table_name)
         
+
+    def load_references_from_prepared_stage_table(self, staging_table_name: str, reference_table_name: str, id_column: str, attributes: List[str]) -> None:
+        """
+        Loads a reference table from a staging table. 
+
+        :param staging_table_name - The name of the table in the prepared staging area.
+        :param reference_table_name - The name of the REF-table in the raw vault.
+        :param id_column - The name of the column holding the id of the reference.
+        :param attributes - The list of attributes which are stored in the reference table.
+        """
+
+        columns = [id_column, self.conventions.hdiff_column_name(), self.conventions.load_date_column_name()] + attributes
+
+        reference_table_name = self.conventions.ref_name(reference_table_name)
+        ref_table_name = f'{self.config.raw_database_name}.{reference_table_name}'
+        
+        ref_df = self.spark.table(ref_table_name)
+        staged_df = self.spark.table(f'`{self.config.staging_prepared_database_name}`.`{staging_table_name}`')
+
+        join_condition = [ref_df[id_column] == staged_df[id_column], \
+            ref_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
+
+        staged_df  = staged_df \
+            .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash(attributes)) \
+            .select(columns) \
+            .distinct() \
+            .join(ref_df, join_condition, how='left_anti') \
+            .write.mode('append').saveAsTable(ref_table_name)
+
+
+    def load_code_references_from_prepared_stage_table(self, staging_table_name: str, reference_table_name: str, id_column: str, attributes: List[str]) -> None:
+        """
+        Loads a reference table from a staging table. 
+
+        :param staging_table_name - The name of the table in the prepared staging area. The staging table name will be used as group name.
+        :param reference_table_name - The name of the REF-table in the raw vault.
+        :param id_column - The name of the column holding the id of the reference.
+        :param attributes - The list of attributes which are stored in the reference table.
+        """
+
+        columns = [self.conventions.ref_group_column_name(), id_column, self.conventions.hdiff_column_name(), self.conventions.load_date_column_name()] + attributes
+
+        reference_table_name = self.conventions.ref_name(reference_table_name)
+        ref_table_name = f'{self.config.raw_database_name}.{reference_table_name}'
+        
+        ref_df = self.spark.table(ref_table_name)
+        staged_df = self.spark.table(f'`{self.config.staging_prepared_database_name}`.`{staging_table_name}`')
+
+        join_condition = [ref_df[id_column] == staged_df[id_column], \
+            ref_df[self.conventions.ref_group_column_name()] == staging_table_name.lower(), \
+            ref_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
+
+        staged_df = staged_df \
+            .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash(attributes)) \
+            .withColumn(self.conventions.ref_group_column_name(), F.lit(staging_table_name.lower())) \
+            .select(columns) \
+            .distinct() \
+            .join(ref_df, join_condition, how='left_anti') \
+            .write.mode('append').saveAsTable(ref_table_name)
 
     def load_satellite_from_prepared_stage_dataframe(self, staged_df: DataFrame, satellite: SatelliteDefinition) -> None:
         """
