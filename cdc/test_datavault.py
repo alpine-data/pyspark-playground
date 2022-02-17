@@ -1,3 +1,5 @@
+import pytest
+
 from datetime import datetime, timedelta
 from os import listdir
 from typing import List, TypedDict
@@ -275,6 +277,32 @@ def load_from_prepared_staging_table(raw_vault: RawVault, batch: int):
         ], DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS), None)
 
 
+def test_dummy(spark: SparkSession):
+    # create sample data
+    data: List[LoadedTables] = create_sample_data(spark)
+
+    # initialize raw vault
+    config = DataVaultConfiguration(
+        SOURCE_SYSTEM_NAME, STAGING_BASE_PATH, STAGING_PREPARED_BASE_PATH, RAW_BASE_PATH, 
+        DV_CONV.LOAD_DATE, DV_CONV.CDC_OPERATION, "")
+    raw_vault = RawVault(spark, config, DV_CONV)
+    raw_vault.initialize_database()
+
+    # load staging tables
+    write_parquet_files(data, STAGING_BASE_PATH)
+    stage_tables(raw_vault, STAGING_BASE_PATH)
+    
+    # create data vault tables
+    create_data_vault_tables(raw_vault)
+
+    # load hubs, satellites, and links from staging batch 0
+    batch = 0
+    raw_vault.load_hub_from_prepared_staging_table(
+        f"{STAGING_TABLE_NAME_MOVIES}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES), HKEY_COLUMNS_MOVIES, 
+        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES), ['ID', 'DIRECTOR', 'RATING', 'RANK'])])
+
+
+@pytest.mark.skip()
 def test_datavault_transformatios(spark: SparkSession):
     """
     Executes several test cases for loading cdc data batches into Data Vault tables.
@@ -463,3 +491,4 @@ def test_datavault_transformatios(spark: SparkSession):
         .collect()[0][0]
     assert movie.select("RANK").collect()[0][0] == rank, \
         f'The queried rank of movie {movie.select("NAME").collect()[0][0]} is {rank}. Correct would be {movie.select("RANK").collect()[0][0]}.'
+

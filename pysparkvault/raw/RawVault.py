@@ -4,7 +4,7 @@ import pyspark.sql.functions as F
 
 from delta.tables import *
 from pyspark.sql import DataFrame, Column
-from pyspark.sql.types import DataType
+from pyspark.sql.types import BooleanType, DataType
 from pyspark.sql.session import SparkSession
 from typing import List, Optional, Union
 
@@ -50,7 +50,7 @@ class DataVaultConventions:
     def __init__(
         self,  column_prefix = '$__', hub = 'HUB__', link = 'LNK__', sat = 'SAT__', pit = 'PIT__',
         hkey = 'HKEY', hdiff = 'HDIFF', load_date = 'LOAD_DATE', load_end_date = 'LOAD_END_DATE', record_source = 'RECORD_SOURCE',
-        cdc_operation = 'OPERATION') -> None:
+        cdc_operation = 'OPERATION', deleted = 'DELETED') -> None:
         
         self.COLUMN_PREFIX = column_prefix
         self.HUB = hub
@@ -63,6 +63,13 @@ class DataVaultConventions:
         self.LOAD_END_DATE = load_end_date
         self.RECORD_SOURCE = record_source
         self.CDC_OPERATION = cdc_operation
+        self.DELETED = deleted
+
+    def deleted_column_name(self) -> str:
+        """
+        Return the column name of the deleted flag.
+        """
+        return f'{self.COLUMN_PREFIX}{self.DELETED}'
 
     def cdc_operation_column_name(self) -> str:
         """
@@ -302,6 +309,9 @@ class RawVault:
 
         self.__create_external_table(self.config.raw_database_name, self.conventions.hub_name(name), columns)
 
+        delete_status_satellite_name = "DEL_STATUS_" + name
+        self.create_delete_status_satellite(delete_status_satellite_name)
+
     def create_link(self, name: str, column_names: List[str]) -> None: # TODO MW: Specify whether Link is History/ Transaction
         """
         Creates a link table in the raw database. Does only create the table if it does not exist yet.
@@ -317,6 +327,9 @@ class RawVault:
         ] + [ ColumnDefinition(column_name, StringType()) for column_name in column_names ]
 
         self.__create_external_table(self.config.raw_database_name, self.conventions.link_name(name), columns)
+
+        delete_status_satellite_name = "DEL_STATUS_" + name
+        self.create_delete_status_satellite(delete_status_satellite_name)
 
     def create_point_in_time_table_for_single_satellite(self, pit_name: str, satellite_name: str) -> None:
         """
@@ -373,6 +386,21 @@ class RawVault:
 
         self.__create_external_table(self.config.raw_database_name, self.conventions.sat_name(name), columns)
 
+    def create_delete_status_satellite(self, name: str) -> None:
+        """
+        Creates a status satellite table in the raw database. Does only create the table if it does not exist yet.
+
+        :param name - The name of the satellite table, usually starting with `SAT__`.
+        """
+
+        columns: List[ColumnDefinition] = [
+            ColumnDefinition(self.conventions.hkey_column_name(), StringType()), # TODO mw: Add comments to column
+            ColumnDefinition(self.conventions.load_date_column_name(), TimestampType()),
+            ColumnDefinition(self.conventions.deleted_column_name(), BooleanType()),
+        ]
+
+        self.__create_external_table(self.config.raw_database_name, self.conventions.sat_name(name), columns)
+
     def initialize_database(self) -> None:
         """
         Initialize database.
@@ -391,6 +419,8 @@ class RawVault:
         :param satellites - Optional. A list of satellites which is loaded from the prepared staging table. The form of the tuple is.
         """
 
+        sat_del_status_table_name = self.conventions.sat_name(f'DEL_STATUS_{self.conventions.remove_prefix(hub_table_name)}')
+        sat_del_status_table_name = f'{self.config.raw_database_name}.{sat_del_status_table_name}'
         hub_table_name = self.conventions.hub_name(hub_table_name)
         hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
         stage_table_name = f'{self.config.staging_prepared_database_name}.{staging_table_name}'
@@ -408,6 +438,8 @@ class RawVault:
             .join(hub_df, hub_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], how='left_anti') \
             .select(columns) \
             .write.mode('append').saveAsTable(hub_table_name)
+
+        self.load_del_status_satellite_from_prepared_stage_dataframe(staged_df, sat_del_status_table_name)
 
         for satellite in satellites:
             self.load_satellite_from_prepared_stage_dataframe(staged_df, satellite)
@@ -520,6 +552,24 @@ class RawVault:
             .distinct() \
             .join(sat_df, join_condition, how='left_anti') \
             .write.mode('append').saveAsTable(sat_table_name)
+
+    
+    def load_del_status_satellite_from_prepared_stage_dataframe(self, staged_df: DataFrame, sat_del_status_table_name: str) -> None:
+        columns = [self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), self.conventions.deleted_column_name()]
+        
+        sat_del_status_df = self.spark.table(sat_del_status_table_name)
+
+        join_condition = [sat_del_status_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], \
+            sat_del_status_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
+
+        deleted_column = F.when(F.col(self.conventions.cdc_operation_column_name()) == 1, True).otherwise(False)
+
+        staged_df \
+            .withColumn(self.conventions.deleted_column_name(), deleted_column) \
+            .select(columns) \
+            .distinct() \
+            .join(sat_del_status_df, join_condition, how='left_anti') \
+            .write.mode('append').saveAsTable(sat_del_status_table_name)
 
 
     def stage_table(self, name: str, source: str, hkey_columns: List[str] = []) -> None: # TODO mw: Multiple HKeys, HDiffs?
