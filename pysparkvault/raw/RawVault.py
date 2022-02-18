@@ -1,5 +1,6 @@
 from datetime import datetime
 from json import load
+import select
 import pyspark.sql.functions as F
 
 from delta.tables import *
@@ -705,6 +706,25 @@ class BusinessVault:
         self.spark = spark
         self.config = config
         self.conventions = conventions
+
+    def create_active_code_reference_table(self, ref_table_name: str, ref_active_table_name, id_column: str) -> None:
+        """
+        Creates an extract of a reference table only containing the current, up-to-date value for the references.
+        """
+        df_ref = self.spark.table(f"`{self.config.raw_database_name}`.`{ref_table_name}`")
+
+        df_ref_left = df_ref \
+            .groupBy(df_ref[id_column], df_ref[self.conventions.ref_group_column_name()]) \
+            .agg(F.max(df_ref[self.conventions.load_date_column_name()]).alias(self.conventions.load_date_column_name()))
+
+        df_ref_left \
+            .join(df_ref, 
+                (df_ref_left[id_column] == df_ref[id_column]) & \
+                (df_ref_left[self.conventions.ref_group_column_name()] == df_ref[self.conventions.ref_group_column_name()])) \
+            .drop(df_ref_left[id_column]) \
+            .drop(df_ref_left[self.conventions.ref_group_column_name()]) \
+            .drop(df_ref_left[self.conventions.load_date_column_name()]) \
+            .write.mode('overwrite').saveAsTable(ref_active_table_name) # TODO mw: Write to currated database.
 
     def read_data_from_hub_sat_and_pit(self, hub_name: str, sat_name: str, pit_name: str, attributes: List[str], include_hkey: bool = False) -> DataFrame:
         df_pit = self.spark.table(f"`{self.config.raw_database_name}`.`{pit_name}`")
