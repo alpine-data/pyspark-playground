@@ -41,14 +41,6 @@ T_4 = T_3 + timedelta(hours=6)
 T_5 = T_1 + timedelta(days=1, minutes=42)
 
 
-class Operation:
-    SNAPSHOT = 0
-    DELETE = 1
-    CREATE = 2
-    BEFORE_UPDATE = 3
-    UPDATE = 4
-
-
 class LoadedTables(TypedDict):
     movies: DataFrame
     actors: DataFrame
@@ -101,83 +93,83 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
     # define data
     movies = [
         [
-            (Operation.SNAPSHOT, T_0, 1, "The Shawshank Redemption", 1994, 1, 9.3, 64),
-            (Operation.SNAPSHOT, T_0, 2, "The Godfather", 1972, 2, 9.2, 94),
-            (Operation.SNAPSHOT, T_0, 3, "The Dark Knight", 2008, 3, 9.0, 104),
-            (Operation.SNAPSHOT, T_0, 4, "Star Wars: Episode V", 1980, 4, 8.7, 485)
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 1, "The Shawshank Redemption", 1994, 1, 9.3, 64),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 2, "The Godfather", 1972, 2, 9.2, 94),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 3, "The Dark Knight", 2008, 3, 9.0, 104),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 4, "Star Wars: Episode V", 1980, 4, 8.7, 485)
         ],
         [
-            (Operation.CREATE, T_2, 5, "Pulp Fiction", 1994, 5, 8.9, 138),
-            (Operation.CREATE, T_2, 6, "Schindler's List", 1993, 6, 8.6, 145),
-            (Operation.CREATE, T_2, 7, "Inception", 2010, 7, 8.3, 210),
-            (Operation.BEFORE_UPDATE, T_2, 3, "The Dark Knight", 2008, 3, 9.0, 104),
-            (Operation.UPDATE, T_2, 3, "The Dark Knight", 2008, 3, 9.1, 97),
-            (Operation.BEFORE_UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.7, 485),
-            (Operation.UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
-            (Operation.BEFORE_UPDATE, T_3, 1, "The Shawshank Redemption", 1994, 1, 9.3, 64),
-            (Operation.UPDATE, T_3, 1, "The Shawshank Redemption", 1994, 1, 9.2, 67),
-            (Operation.BEFORE_UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.2, 94),
-            (Operation.UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.1, 96),
-            (Operation.BEFORE_UPDATE, T_4, 6, "Schindler's List", 1993, 6, 8.6, 145),
-            (Operation.UPDATE, T_4, 6, "Schindler's List", 1993, 6, 8.8, 125),
-            (Operation.BEFORE_UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.2, 67),
-            (Operation.UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
-            (Operation.DELETE, T_4, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
-            (Operation.DELETE, T_4, 3, "The Dark Knight", 2008, 3, 9.1, 97)
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 5, "Pulp Fiction", 1994, 5, 8.9, 138),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 6, "Schindler's List", 1993, 6, 8.6, 145),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 7, "Inception", 2010, 7, 8.3, 210),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_2, 3, "The Dark Knight", 2008, 3, 9.0, 104),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_2, 3, "The Dark Knight", 2008, 3, 9.1, 97),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.7, 485),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_3, 1, "The Shawshank Redemption", 1994, 1, 9.3, 64),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_3, 1, "The Shawshank Redemption", 1994, 1, 9.2, 67),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.2, 94),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.1, 96),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_4, 6, "Schindler's List", 1993, 6, 8.6, 145),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_4, 6, "Schindler's List", 1993, 6, 8.8, 125),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.2, 67),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
+            (DV_CONV.CDC_OPERATIONS.DELETE, T_4, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
+            (DV_CONV.CDC_OPERATIONS.DELETE, T_4, 3, "The Dark Knight", 2008, 3, 9.1, 97)
         ],
         [
-            (Operation.BEFORE_UPDATE, T_5, 2, "The Godfather", 1972, 2, 9.1, 96),
-            (Operation.UPDATE, T_5, 2, "The Godfather", 1972, 2, 8.9, 103),
-            (Operation.BEFORE_UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.8, 125),
-            (Operation.UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.3, 210),
-            (Operation.CREATE, T_5, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
-            (Operation.BEFORE_UPDATE, T_5, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
-            (Operation.UPDATE, T_5, 1, "The Shawshank Redemption", 1994, None, 9.5, 3)
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 2, "The Godfather", 1972, 2, 9.1, 96),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 2, "The Godfather", 1972, 2, 8.9, 103),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.8, 125),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.3, 210),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_5, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 1, "The Shawshank Redemption", 1994, None, 9.5, 3)
         ]
     ]
 
     actors = [
         [
-            (Operation.SNAPSHOT, T_0, 1, "Tim Robbins", "USA"),
-            (Operation.SNAPSHOT, T_0, 2, "Morgan Freeman", "USA"),
-            (Operation.SNAPSHOT, T_0, 3, "Bob Gunton", "USA"),
-            (Operation.SNAPSHOT, T_0, 4, "William Sadler", "USA"),
-            (Operation.SNAPSHOT, T_0, 5, "Marlon Brando", "USA"),
-            (Operation.SNAPSHOT, T_0, 6, "Al Pacino", "USA"),
-            (Operation.SNAPSHOT, T_0, 7, "James Caan", "USA"),
-            (Operation.SNAPSHOT, T_0, 8, "Christian Bale", "USA"),
-            (Operation.SNAPSHOT, T_0, 9, "Heath Ledger", "USA"),
-            (Operation.SNAPSHOT, T_0, 10, "Mark Hamill", "USA"),
-            (Operation.SNAPSHOT, T_0, 11, "Harrison Ford", "USA"),
-            (Operation.SNAPSHOT, T_0, 12, "Carrie Fisher", "USA"),
-            (Operation.SNAPSHOT, T_0, 13, "Robert Duvall", "USA"),
-            (Operation.SNAPSHOT, T_0, 14, "John Marley", "USA"),
-            (Operation.SNAPSHOT, T_0, 15, "Gary Oldman", "USA")
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 1, "Tim Robbins", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 2, "Morgan Freeman", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 3, "Bob Gunton", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 4, "William Sadler", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 5, "Marlon Brando", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 6, "Al Pacino", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 7, "James Caan", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 8, "Christian Bale", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 9, "Heath Ledger", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 10, "Mark Hamill", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 11, "Harrison Ford", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 12, "Carrie Fisher", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 13, "Robert Duvall", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 14, "John Marley", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 15, "Gary Oldman", "USA")
         ],
         [
-            (Operation.CREATE, T_2, 16, "John Travolta", "USA"),
-            (Operation.CREATE, T_2, 17, "Liam Neeson", "USA"),
-            (Operation.CREATE, T_2, 18, "Ralph Fiennes", "USA"),
-            (Operation.CREATE, T_2, 19, "Ben Kingsley", "USA"),
-            (Operation.CREATE, T_2, 20, "Leonardo DiCaprio", "USA"),
-            (Operation.DELETE, T_4, 13, "Robert Duvall", "USA")
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 16, "John Travolta", "USA"),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 17, "Liam Neeson", "USA"),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 18, "Ralph Fiennes", "USA"),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 19, "Ben Kingsley", "USA"),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 20, "Leonardo DiCaprio", "USA"),
+            (DV_CONV.CDC_OPERATIONS.DELETE, T_4, 13, "Robert Duvall", "USA")
         ],
         [
-            (Operation.DELETE, T_5, 14, "John Marley", "USA")
+            (DV_CONV.CDC_OPERATIONS.DELETE, T_5, 14, "John Marley", "USA")
         ]
     ]
 
     directors = [
         [
-            (Operation.SNAPSHOT, T_0, 1, "Frank Darabont", "USA"),
-            (Operation.SNAPSHOT, T_0, 2, "Francis Ford Coppola", "USA"),
-            (Operation.SNAPSHOT, T_0, 3, "Christopher Nolan", "USA"),
-            (Operation.SNAPSHOT, T_0, 4, "Irvin Kershner", "USA")
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 1, "Frank Darabont", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 2, "Francis Ford Coppola", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 3, "Christopher Nolan", "USA"),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 4, "Irvin Kershner", "USA")
         ],
         [
-            (Operation.CREATE, T_2, 5, "Quentin Terintino", "USA"),
-            (Operation.CREATE, T_2, 6, "Steven Spielberg", "USA"),
-            (Operation.CREATE, T_2, 7, "Christopher Nolan", "USA"),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 5, "Quentin Terintino", "USA"),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 6, "Steven Spielberg", "USA"),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 7, "Christopher Nolan", "USA"),
         ],
         [
         ]
@@ -185,28 +177,28 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
 
     castings = [
         [
-            (Operation.SNAPSHOT, T_0, 1, 1),
-            (Operation.SNAPSHOT, T_0, 1, 2),
-            (Operation.SNAPSHOT, T_0, 1, 3),
-            (Operation.SNAPSHOT, T_0, 1, 4),
-            (Operation.SNAPSHOT, T_0, 2, 5),
-            (Operation.SNAPSHOT, T_0, 2, 6),
-            (Operation.SNAPSHOT, T_0, 2, 7),
-            (Operation.SNAPSHOT, T_0, 3, 8),
-            (Operation.SNAPSHOT, T_0, 3, 9),
-            (Operation.SNAPSHOT, T_0, 4, 10),
-            (Operation.SNAPSHOT, T_0, 4, 11),
-            (Operation.SNAPSHOT, T_0, 4, 12)
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 1, 1),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 1, 2),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 1, 3),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 1, 4),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 2, 5),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 2, 6),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 2, 7),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 3, 8),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 3, 9),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 4, 10),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 4, 11),
+            (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 4, 12)
         ],
         [
-            (Operation.CREATE, T_2, 5, 16),
-            (Operation.CREATE, T_2, 6, 17),
-            (Operation.CREATE, T_2, 6, 18),
-            (Operation.CREATE, T_2, 6, 19),
-            (Operation.CREATE, T_2, 7, 20)
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 5, 16),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 6, 17),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 6, 18),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 6, 19),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 7, 20)
         ],
         [
-            (Operation.CREATE, T_5, 7, 19)
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_5, 7, 19)
         ]
     ]
 
@@ -283,7 +275,7 @@ def create_data_vault_tables(raw_vault: RawVault) -> None:
     raw_vault.create_link(SOURCE_TABLE_NAME_CASTINGS, ["HKEY_MOVIES", "HKEY_ACTORS"])
 
     # create links
-    raw_vault.create_link("MOVIES_DIRECTORS", ["HKEY_MOVIES", "HKEY_DIRECTORS"])
+    raw_vault.create_link(LINK_TABLE_NAME_MOVIES_DIRECTORS, ["HKEY_MOVIES", "HKEY_DIRECTORS"])
 
     # create satellites
     raw_vault.create_satellite(SOURCE_TABLE_NAME_MOVIES, [
@@ -333,7 +325,7 @@ def load_from_prepared_staging_table(raw_vault: RawVault, batch: int):
         ], DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS), None)
     
     raw_vault.load_link_for_linked_source_tables_from_prepared_staging_tables(f"{STAGING_TABLE_NAME_MOVIES}_{batch}",
-        ForeignKey("DIRECTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_DIRECTORS}_{batch}", "ID")), "MOVIES_DIRECTORS", "HKEY_MOVIES", "HKEY_DIRECTORS")
+        ForeignKey("DIRECTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_DIRECTORS}_{batch}", "ID")), LINK_TABLE_NAME_MOVIES_DIRECTORS, "HKEY_MOVIES", "HKEY_DIRECTORS")
 
 
 def test_datavault_transformatios(spark: SparkSession):
@@ -370,7 +362,7 @@ def test_datavault_transformatios(spark: SparkSession):
     # batch = 2
     # load_from_prepared_staging_table(raw_vault, batch)
 
-    # sat_effectivity_table_name = DV_CONV.link_name("MOVIES_DIRECTORS")
+    # sat_effectivity_table_name = DV_CONV.link_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)
     # sat_effectivity_table_name = f'{config.raw_database_name}.{sat_effectivity_table_name}'
     # spark.table(sat_effectivity_table_name).show()
 
@@ -384,7 +376,7 @@ def test_datavault_transformatios(spark: SparkSession):
     df_hub_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS)}')
     df_hub_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_link_castings = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS)}')
-    df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name("MOVIES_DIRECTORS")}')
+    df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
     df_sat_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_sat_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}')
 
@@ -392,11 +384,11 @@ def test_datavault_transformatios(spark: SparkSession):
     df_sat_effectivity_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_ACTORS)}')
     df_sat_effectivity_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_sat_effectivity_casting = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_CASTINGS)}')
-    df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name("MOVIES_DIRECTORS")}')
+    df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
 
     # Hub for movie "The Shawshank Redemption", 1994 -> exists
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_hub_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -405,7 +397,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Hub for actor "Tim Robbins" -> exists
     actor = df_actors \
-        .filter((df_actors.ID == 1) & (df_actors["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
+        .filter((df_actors.ID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_hub_actors \
         .filter(col(DV_CONV.hkey_column_name()) == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -431,7 +423,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rating of movie "The Shawshank Redemption", 1994, is 9,1
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rating = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -443,7 +435,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rank of movie "The Shawshank Redemption", 1994, is 64
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rank = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -456,7 +448,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Country of actor "Tim Robbins" is "USA"
     actor = df_actors \
-        .filter((df_actors.ID == 1) & (df_actors["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
+        .filter((df_actors.ID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     country = df_sat_actors \
         .filter(col(DV_CONV.hkey_column_name()) == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -480,7 +472,7 @@ def test_datavault_transformatios(spark: SparkSession):
     df_hub_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS)}')
     df_hub_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_link_castings = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS)}')
-    df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name("MOVIES_DIRECTORS")}')
+    df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
     df_sat_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_sat_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}')
 
@@ -488,11 +480,11 @@ def test_datavault_transformatios(spark: SparkSession):
     df_sat_effectivity_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_ACTORS)}')
     df_sat_effectivity_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_sat_effectivity_casting = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_CASTINGS)}')
-    df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name("MOVIES_DIRECTORS")}')
+    df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
 
     # # Rating of movie "The Shawshank Redemption", 1994, is 9,6
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rating = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -504,7 +496,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # # Rank of movie "The Shawshank Redemption", 1994, is 2
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rank = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -528,7 +520,7 @@ def test_datavault_transformatios(spark: SparkSession):
     df_hub_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS)}')
     df_hub_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_link_castings = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS)}')
-    df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name("MOVIES_DIRECTORS")}')
+    df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
     df_sat_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_sat_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}')
 
@@ -536,11 +528,11 @@ def test_datavault_transformatios(spark: SparkSession):
     df_sat_effectivity_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_ACTORS)}')
     df_sat_effectivity_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_sat_effectivity_casting = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_CASTINGS)}')
-    df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name("MOVIES_DIRECTORS")}')
+    df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
 
     # Rating of movie "The Shawshank Redemption", 1994, is 9,5
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rating = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -552,7 +544,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rank of movie "The Shawshank Redemption", 1994, is 3
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rank = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
