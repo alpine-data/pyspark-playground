@@ -1,5 +1,7 @@
 from datetime import datetime
 from json import load
+from select import select
+from traceback import print_tb
 import pyspark.sql.functions as F
 
 from delta.tables import *
@@ -48,7 +50,7 @@ class DataVaultFunctions:
 class DataVaultConventions:
 
     def __init__(
-        self,  column_prefix = '$__', hub = 'HUB__', link = 'LNK__', sat = 'SAT__', pit = 'PIT__',
+        self,  column_prefix = '$__', hub = 'HUB__', link = 'LNK__', sat = 'SAT__', pit = 'PIT__', effectivity='EFFECTIVTY_',
         hkey = 'HKEY', hdiff = 'HDIFF', load_date = 'LOAD_DATE', load_end_date = 'LOAD_END_DATE', record_source = 'RECORD_SOURCE',
         cdc_operation = 'OPERATION', deleted = 'DELETED') -> None:
         
@@ -57,6 +59,7 @@ class DataVaultConventions:
         self.LINK = link
         self.SAT = sat
         self.PIT = pit
+        self.EFFECTIVTY = effectivity
         self.HKEY = hkey
         self.HDIFF = hdiff
         self.LOAD_DATE = load_date
@@ -164,7 +167,7 @@ class DataVaultConventions:
     def sat_name(self, name: str) -> str:
         """
         Returns a name of a SAT (satellite) table, based on the base name. This method ensures, that the name is prefixed with the configured
-        hub prefix. If the prefix is already present, it will not be added.
+        satellite prefix. If the prefix is already present, it will not be added.
         """
 
         name = name.upper()
@@ -173,6 +176,19 @@ class DataVaultConventions:
             return name
         else:
             return f'{self.SAT}{name}'
+
+    def sat_effectivity_name(self, name: str) -> str:
+        """
+        Returns a name of a effectivity SAT (satellite) table, based on the base name. This method ensures, that the name is prefixed with the configured
+        satellite prefix. If the prefix is already present, it will not be added.
+        """
+
+        name = name.upper()
+
+        if name.startswith(f'{self.SAT}{self.EFFECTIVTY}'):
+            return name
+        else:
+            return f'{self.SAT}{self.EFFECTIVTY}{name}'
 
 
 class DataVaultConfiguration:
@@ -309,8 +325,7 @@ class RawVault:
 
         self.__create_external_table(self.config.raw_database_name, self.conventions.hub_name(name), columns)
 
-        delete_status_satellite_name = "DEL_STATUS_" + name
-        self.create_delete_status_satellite(delete_status_satellite_name)
+        self.create_effectivity_satellite(self.conventions.sat_effectivity_name(name))
 
     def create_link(self, name: str, column_names: List[str]) -> None: # TODO MW: Specify whether Link is History/ Transaction
         """
@@ -328,8 +343,7 @@ class RawVault:
 
         self.__create_external_table(self.config.raw_database_name, self.conventions.link_name(name), columns)
 
-        delete_status_satellite_name = "DEL_STATUS_" + name
-        self.create_delete_status_satellite(delete_status_satellite_name)
+        self.create_effectivity_satellite(self.conventions.sat_effectivity_name(name))
 
     def create_point_in_time_table_for_single_satellite(self, pit_name: str, satellite_name: str) -> None:
         """
@@ -368,7 +382,6 @@ class RawVault:
                     .when(F.isnull(self.conventions.load_end_date_column_name()), datetime.max) \
                     .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
             .write.mode('overwrite').saveAsTable(pit_table_name)
-        
 
     def create_satellite(self, name: str, attribute_columns: List[ColumnDefinition]) -> None:
         """
@@ -386,17 +399,19 @@ class RawVault:
 
         self.__create_external_table(self.config.raw_database_name, self.conventions.sat_name(name), columns)
 
-    def create_delete_status_satellite(self, name: str) -> None:
+    def create_effectivity_satellite(self, name: str) -> None:
         """
-        Creates a status satellite table in the raw database. Does only create the table if it does not exist yet.
+        Creates an effectivity satellite table in the raw database. This satellite contains information about whether an instance is deleted or not. 
+        Does only create the table if it does not exist yet.
 
         :param name - The name of the satellite table, usually starting with `SAT__`.
         """
 
         columns: List[ColumnDefinition] = [
             ColumnDefinition(self.conventions.hkey_column_name(), StringType()), # TODO mw: Add comments to column
+            ColumnDefinition(self.conventions.hdiff_column_name(), StringType()),
             ColumnDefinition(self.conventions.load_date_column_name(), TimestampType()),
-            ColumnDefinition(self.conventions.deleted_column_name(), BooleanType()),
+            ColumnDefinition(self.conventions.deleted_column_name(), BooleanType())
         ]
 
         self.__create_external_table(self.config.raw_database_name, self.conventions.sat_name(name), columns)
@@ -419,8 +434,8 @@ class RawVault:
         :param satellites - Optional. A list of satellites which is loaded from the prepared staging table. The form of the tuple is.
         """
 
-        sat_del_status_table_name = self.conventions.sat_name(f'DEL_STATUS_{self.conventions.remove_prefix(hub_table_name)}')
-        sat_del_status_table_name = f'{self.config.raw_database_name}.{sat_del_status_table_name}'
+        sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(hub_table_name))
+        sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
         hub_table_name = self.conventions.hub_name(hub_table_name)
         hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
         stage_table_name = f'{self.config.staging_prepared_database_name}.{staging_table_name}'
@@ -439,7 +454,7 @@ class RawVault:
             .select(columns) \
             .write.mode('append').saveAsTable(hub_table_name)
 
-        self.load_del_status_satellite_from_prepared_stage_dataframe(staged_df, sat_del_status_table_name)
+        self.load_effectivity_satellite_from_prepared_stage_dataframe(staged_df, sat_effectivity_table_name)
 
         for satellite in satellites:
             self.load_satellite_from_prepared_stage_dataframe(staged_df, satellite)
@@ -461,9 +476,16 @@ class RawVault:
         :param to_hkey_column_name - The name of the column pointing to the target of the link in the link table.
         """
 
+        sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
+        sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
         link_table_name = self.conventions.link_name(link_table_name)
         link_table_name = f'{self.config.raw_database_name}.{link_table_name}'
         link_df = self.spark.table(link_table_name)
+
+        columns = [
+            self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), self.conventions.record_source_column_name(),
+            from_hkey_column_name, to_hkey_column_name
+        ]
 
         staged_to_df = self.spark.table(f'{self.config.staging_prepared_database_name}.{from_staging_foreign_key.to.table}') \
             .withColumnRenamed(self.conventions.hkey_column_name(), to_hkey_column_name) \
@@ -471,19 +493,55 @@ class RawVault:
 
         staged_from_df = self.spark.table(f'{self.config.staging_prepared_database_name}.{from_staging_table_name}') \
             .withColumnRenamed(self.conventions.hkey_column_name(), from_hkey_column_name) \
-            .select([from_staging_foreign_key.column, from_hkey_column_name])
+            .select([
+                from_staging_foreign_key.column, from_hkey_column_name, 
+                self.conventions.cdc_operation_column_name(), self.conventions.load_date_column_name()])
 
         joined_df = staged_from_df \
             .join(staged_to_df, staged_from_df[from_staging_foreign_key.column] == staged_to_df[from_staging_foreign_key.to.column]) \
-            .select([from_hkey_column_name, to_hkey_column_name]) \
             .distinct() \
             .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
             .withColumn(self.conventions.load_date_column_name(), F.current_timestamp()) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
-            .select([self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), self.conventions.record_source_column_name(), from_hkey_column_name, to_hkey_column_name])
+            .select([
+                self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), 
+                self.conventions.record_source_column_name(), from_hkey_column_name, to_hkey_column_name])
 
-        joined_df.join(link_df, link_df[self.conventions.hkey_column_name()] == joined_df[self.conventions.hkey_column_name()], how='left_anti') \
+        joined_df = joined_df \
+            .join(link_df, link_df[self.conventions.hkey_column_name()] == joined_df[self.conventions.hkey_column_name()], how='left_anti')
+
+        update_df = staged_from_df \
+            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == 4)
+
+        before_update_df = staged_from_df \
+            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == 3)
+
+        join_condition = [update_df[from_hkey_column_name] == before_update_df[from_hkey_column_name], \
+            update_df[self.conventions.load_date_column_name()] == before_update_df[self.conventions.load_date_column_name()]]
+
+        delete_link_df = update_df.alias('l') \
+            .join(before_update_df.alias('r'), join_condition) \
+            .filter((F.col(f'l.{from_staging_foreign_key.column}').isNull()) & (F.col(f'r.{from_staging_foreign_key.column}').isNotNull())) \
+            .select([F.col(f'l.{from_hkey_column_name}'), F.col(f'l.{self.conventions.load_date_column_name()}'), F.col(f'r.{from_staging_foreign_key.column}',
+            )])
+
+        delete_link_df = delete_link_df.alias('l') \
+            .join(link_df.alias('r'), link_df[from_hkey_column_name] == before_update_df[from_hkey_column_name]) \
+            .withColumn(self.conventions.cdc_operation_column_name(), F.lit(1)) \
+            .select([
+                self.conventions.hkey_column_name(), F.col(f'l.{self.conventions.load_date_column_name()}'), self.conventions.record_source_column_name(),
+                F.col(f'r.{from_hkey_column_name}'), F.col(f'r.{to_hkey_column_name}'), self.conventions.cdc_operation_column_name()
+            ])
+
+        merged_df = joined_df \
+            .withColumn(self.conventions.cdc_operation_column_name(), F.lit(4)) \
+            .union(delete_link_df)
+
+        joined_df \
+            .select(columns) \
             .write.mode('append').saveAsTable(link_table_name)
+
+        self.load_effectivity_satellite_from_prepared_stage_dataframe(merged_df, sat_effectivity_table_name)
 
     
     def load_link_from_prepared_stage_table(self, staging_table_name: str, links: List[LinkedHubDefinition], link_table_name: str, satellites: List[SatelliteDefinition]) -> None:
@@ -496,14 +554,15 @@ class RawVault:
         :param satellites - Definitions of the satellites for the link.
         """
 
+        sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
+        sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
         link_table_name = self.conventions.link_name(link_table_name)
         link_table_name = f'{self.config.raw_database_name}.{link_table_name}'
 
         columns = [self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), self.conventions.record_source_column_name()] \
             + [ link.hkey_column_name for link in links ]
 
-        staged_df = self.spark.table(f'{self.config.staging_prepared_database_name}.{staging_table_name}') \
-            .select([ link.foreign_key.column for link in links ])
+        staged_df = self.spark.table(f'{self.config.staging_prepared_database_name}.{staging_table_name}')
         
         for link in links:
             link_df = self.spark.table(f'{self.config.staging_prepared_database_name}.{link.foreign_key.to.table}') \
@@ -516,17 +575,19 @@ class RawVault:
         link_df = self.spark.table(link_table_name)
 
         staged_df = staged_df \
-            .select([ link.hkey_column_name for link in links ]) \
             .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([ link.hkey_column_name for link in links ])) \
             .withColumn(self.conventions.load_date_column_name(), F.current_timestamp()) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
             .distinct()
         
         staged_df = staged_df \
-            .join(link_df, link_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], how='left_anti') \
+            .join(link_df, link_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], how='left_anti')
+
+        self.load_effectivity_satellite_from_prepared_stage_dataframe(staged_df, sat_effectivity_table_name)
+
+        staged_df \
             .select(columns) \
             .write.mode('append').saveAsTable(link_table_name)
-        
 
     def load_satellite_from_prepared_stage_dataframe(self, staged_df: DataFrame, satellite: SatelliteDefinition) -> None:
         """
@@ -553,24 +614,27 @@ class RawVault:
             .join(sat_df, join_condition, how='left_anti') \
             .write.mode('append').saveAsTable(sat_table_name)
 
-    
-    def load_del_status_satellite_from_prepared_stage_dataframe(self, staged_df: DataFrame, sat_del_status_table_name: str) -> None:
-        columns = [self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), self.conventions.deleted_column_name()]
+    def load_effectivity_satellite_from_prepared_stage_dataframe(self, staged_df: DataFrame, sat_effectivity_table_name: str) -> None:
+        columns = [
+            self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), self.conventions.deleted_column_name()
+        ]
         
-        sat_del_status_df = self.spark.table(sat_del_status_table_name)
+        sat_effectivity_df = self.spark.table(sat_effectivity_table_name)
 
-        join_condition = [sat_del_status_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], \
-            sat_del_status_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
+        join_condition = [sat_effectivity_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], \
+            sat_effectivity_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
 
         deleted_column = F.when(F.col(self.conventions.cdc_operation_column_name()) == 1, True).otherwise(False)
 
-        staged_df \
+        staged_df = staged_df \
             .withColumn(self.conventions.deleted_column_name(), deleted_column) \
             .select(columns) \
             .distinct() \
-            .join(sat_del_status_df, join_condition, how='left_anti') \
-            .write.mode('append').saveAsTable(sat_del_status_table_name)
+            .join(sat_effectivity_df, join_condition, how='left_anti') \
 
+        staged_df \
+            .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash([self.conventions.deleted_column_name()])) \
+            .write.mode('append').saveAsTable(sat_effectivity_table_name)
 
     def stage_table(self, name: str, source: str, hkey_columns: List[str] = []) -> None: # TODO mw: Multiple HKeys, HDiffs?
         """
