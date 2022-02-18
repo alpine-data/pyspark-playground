@@ -46,13 +46,20 @@ class DataVaultFunctions:
 
         return F.to_timestamp(F.col(column_name), pattern);
 
+class CDCOperations:
+    def __init__(self, snapshot = 0, delete = 1, create = 2, before_update = 3, update = 4):
+        self.SNAPSHOT = snapshot
+        self.DELETE = delete
+        self.CREATE = create
+        self.BEFORE_UPDATE = before_update
+        self.UPDATE = update
 
 class DataVaultConventions:
 
     def __init__(
         self,  column_prefix = '$__', hub = 'HUB__', link = 'LNK__', sat = 'SAT__', pit = 'PIT__', effectivity='EFFECTIVTY_',
         hkey = 'HKEY', hdiff = 'HDIFF', load_date = 'LOAD_DATE', load_end_date = 'LOAD_END_DATE', record_source = 'RECORD_SOURCE',
-        cdc_operation = 'OPERATION', deleted = 'DELETED') -> None:
+        cdc_operation = 'OPERATION', deleted = 'DELETED', cdc_operations = CDCOperations()) -> None:
         
         self.COLUMN_PREFIX = column_prefix
         self.HUB = hub
@@ -67,6 +74,7 @@ class DataVaultConventions:
         self.RECORD_SOURCE = record_source
         self.CDC_OPERATION = cdc_operation
         self.DELETED = deleted
+        self.CDC_OPERATIONS = cdc_operations
 
     def deleted_column_name(self) -> str:
         """
@@ -446,12 +454,14 @@ class RawVault:
         hub_df = self.spark.table(hub_table_name)
         staged_df = self.spark.table(stage_table_name)
 
+        # second distinct() is required because duplicates occur after joining
         staged_df \
             .withColumn(self.conventions.load_date_column_name(), F.current_timestamp()) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
             .distinct() \
             .join(hub_df, hub_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], how='left_anti') \
             .select(columns) \
+            .distinct() \
             .write.mode('append').saveAsTable(hub_table_name)
 
         self.load_effectivity_satellite_from_prepared_stage_dataframe(staged_df, sat_effectivity_table_name)
@@ -499,22 +509,20 @@ class RawVault:
 
         joined_df = staged_from_df \
             .join(staged_to_df, staged_from_df[from_staging_foreign_key.column] == staged_to_df[from_staging_foreign_key.to.column]) \
-            .distinct() \
             .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
             .withColumn(self.conventions.load_date_column_name(), F.current_timestamp()) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
-            .select([
-                self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), 
-                self.conventions.record_source_column_name(), from_hkey_column_name, to_hkey_column_name])
+            .select(columns) \
+            .distinct()
 
         joined_df = joined_df \
             .join(link_df, link_df[self.conventions.hkey_column_name()] == joined_df[self.conventions.hkey_column_name()], how='left_anti')
 
         update_df = staged_from_df \
-            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == 4)
+            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPERATIONS.UPDATE)
 
         before_update_df = staged_from_df \
-            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == 3)
+            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPERATIONS.BEFORE_UPDATE)
 
         join_condition = [update_df[from_hkey_column_name] == before_update_df[from_hkey_column_name], \
             update_df[self.conventions.load_date_column_name()] == before_update_df[self.conventions.load_date_column_name()]]
@@ -522,26 +530,25 @@ class RawVault:
         delete_link_df = update_df.alias('l') \
             .join(before_update_df.alias('r'), join_condition) \
             .filter((F.col(f'l.{from_staging_foreign_key.column}').isNull()) & (F.col(f'r.{from_staging_foreign_key.column}').isNotNull())) \
-            .select([F.col(f'l.{from_hkey_column_name}'), F.col(f'l.{self.conventions.load_date_column_name()}'), F.col(f'r.{from_staging_foreign_key.column}',
-            )])
+            .select([F.col(f'l.{from_hkey_column_name}'), F.col(f'l.{self.conventions.load_date_column_name()}'), F.col(f'r.{from_staging_foreign_key.column}')])
 
         delete_link_df = delete_link_df.alias('l') \
             .join(link_df.alias('r'), link_df[from_hkey_column_name] == before_update_df[from_hkey_column_name]) \
-            .withColumn(self.conventions.cdc_operation_column_name(), F.lit(1)) \
+            .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPERATIONS.DELETE)) \
             .select([
                 self.conventions.hkey_column_name(), F.col(f'l.{self.conventions.load_date_column_name()}'), self.conventions.record_source_column_name(),
                 F.col(f'r.{from_hkey_column_name}'), F.col(f'r.{to_hkey_column_name}'), self.conventions.cdc_operation_column_name()
             ])
 
-        merged_df = joined_df \
-            .withColumn(self.conventions.cdc_operation_column_name(), F.lit(4)) \
+        delete_link_df = joined_df \
+            .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPERATIONS.CREATE)) \
             .union(delete_link_df)
-
+        
         joined_df \
             .select(columns) \
             .write.mode('append').saveAsTable(link_table_name)
 
-        self.load_effectivity_satellite_from_prepared_stage_dataframe(merged_df, sat_effectivity_table_name)
+        self.load_effectivity_satellite_from_prepared_stage_dataframe(delete_link_df, sat_effectivity_table_name)
 
     
     def load_link_from_prepared_stage_table(self, staging_table_name: str, links: List[LinkedHubDefinition], link_table_name: str, satellites: List[SatelliteDefinition]) -> None:
@@ -564,6 +571,8 @@ class RawVault:
 
         staged_df = self.spark.table(f'{self.config.staging_prepared_database_name}.{staging_table_name}')
         
+        # TODO jb: this is not working if the linked entities are not in the current staging batch
+        # eg. movies and actors added in batch 0 but the relation is added in batch 1 -> null values
         for link in links:
             link_df = self.spark.table(f'{self.config.staging_prepared_database_name}.{link.foreign_key.to.table}') \
                 .withColumnRenamed(self.conventions.hkey_column_name(), link.hkey_column_name) \
@@ -606,18 +615,20 @@ class RawVault:
         join_condition = [sat_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], \
             sat_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
 
-        # TODO mw: Remove  distinct() for performance reasons? Should not happen in any case.       
+        allowed_cdc_operations = [self.conventions.CDC_OPERATIONS.CREATE, self.conventions.CDC_OPERATIONS.UPDATE, self.conventions.CDC_OPERATIONS.SNAPSHOT]
+
+        # TODO mw: Remove  distinct() for performance reasons? Should not happen in any case.
+        # filter() excludes BEFORE_UPDATE and DELETE operations that would cause inconsistencies       
         staged_df \
             .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash(satellite.attributes)) \
+            .filter(staged_df[self.conventions.cdc_operation_column_name()].isin(allowed_cdc_operations)) \
             .select(columns) \
             .distinct() \
             .join(sat_df, join_condition, how='left_anti') \
             .write.mode('append').saveAsTable(sat_table_name)
 
     def load_effectivity_satellite_from_prepared_stage_dataframe(self, staged_df: DataFrame, sat_effectivity_table_name: str) -> None:
-        columns = [
-            self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), self.conventions.deleted_column_name()
-        ]
+        columns = [self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), self.conventions.deleted_column_name()]
         
         sat_effectivity_df = self.spark.table(sat_effectivity_table_name)
 
@@ -626,8 +637,11 @@ class RawVault:
 
         deleted_column = F.when(F.col(self.conventions.cdc_operation_column_name()) == 1, True).otherwise(False)
 
+        allowed_cdc_operations = [self.conventions.CDC_OPERATIONS.CREATE, self.conventions.CDC_OPERATIONS.DELETE]
+
         staged_df = staged_df \
             .withColumn(self.conventions.deleted_column_name(), deleted_column) \
+            .filter(staged_df[self.conventions.cdc_operation_column_name()].isin(allowed_cdc_operations)) \
             .select(columns) \
             .distinct() \
             .join(sat_effectivity_df, join_condition, how='left_anti') \
