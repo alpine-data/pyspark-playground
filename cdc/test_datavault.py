@@ -20,6 +20,8 @@ STAGING_TABLE_NAME_ACTORS = f"STG__{SOURCE_TABLE_NAME_ACTORS}"
 STAGING_TABLE_NAME_DIRECTORS = f"STG__{SOURCE_TABLE_NAME_DIRECTORS}"
 STAGING_TABLE_NAME_CASTINGS = f"STG__{SOURCE_TABLE_NAME_CASTINGS}"
 
+LINK_TABLE_NAME_MOVIES_DIRECTORS = f"{SOURCE_TABLE_NAME_MOVIES}_{SOURCE_TABLE_NAME_DIRECTORS}"
+
 HKEY_COLUMNS_MOVIES = ["NAME", "YEAR"]
 HKEY_COLUMNS_ACTORS = ["NAME"]
 HKEY_COLUMNS_DIRECTORS = ["NAME"]
@@ -68,7 +70,7 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
         StructField("ID", StringType(), False),
         StructField("NAME", StringType(), False),
         StructField("YEAR", IntegerType(), False),
-        StructField("DIRECTOR_ID", IntegerType(), False),
+        StructField("DIRECTOR_ID", IntegerType(), True),
         StructField("RATING", DoubleType(), False),
         StructField("RANK", IntegerType(), False)
     ])
@@ -108,20 +110,29 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
             (Operation.CREATE, T_2, 5, "Pulp Fiction", 1994, 5, 8.9, 138),
             (Operation.CREATE, T_2, 6, "Schindler's List", 1993, 6, 8.6, 145),
             (Operation.CREATE, T_2, 7, "Inception", 2010, 7, 8.3, 210),
+            (Operation.BEFORE_UPDATE, T_2, 3, "The Dark Knight", 2008, 3, 9.0, 104),
             (Operation.UPDATE, T_2, 3, "The Dark Knight", 2008, 3, 9.1, 97),
+            (Operation.BEFORE_UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.7, 485),
             (Operation.UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
+            (Operation.BEFORE_UPDATE, T_3, 1, "The Shawshank Redemption", 1994, 1, 9.3, 64),
             (Operation.UPDATE, T_3, 1, "The Shawshank Redemption", 1994, 1, 9.2, 67),
+            (Operation.BEFORE_UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.2, 94),
             (Operation.UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.1, 96),
+            (Operation.BEFORE_UPDATE, T_4, 6, "Schindler's List", 1993, 6, 8.6, 145),
             (Operation.UPDATE, T_4, 6, "Schindler's List", 1993, 6, 8.8, 125),
+            (Operation.BEFORE_UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.2, 67),
             (Operation.UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
             (Operation.DELETE, T_4, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
             (Operation.DELETE, T_4, 3, "The Dark Knight", 2008, 3, 9.1, 97)
         ],
         [
+            (Operation.BEFORE_UPDATE, T_5, 2, "The Godfather", 1972, 2, 9.1, 96),
             (Operation.UPDATE, T_5, 2, "The Godfather", 1972, 2, 8.9, 103),
+            (Operation.BEFORE_UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.8, 125),
             (Operation.UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.3, 210),
             (Operation.CREATE, T_5, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
-            (Operation.UPDATE, T_5, 1, "The Shawshank Redemption", 1994, 1, 9.5, 3)
+            (Operation.BEFORE_UPDATE, T_5, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
+            (Operation.UPDATE, T_5, 1, "The Shawshank Redemption", 1994, None, 9.5, 3)
         ]
     ]
 
@@ -168,7 +179,8 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
             (Operation.CREATE, T_2, 6, "Steven Spielberg", "USA"),
             (Operation.CREATE, T_2, 7, "Christopher Nolan", "USA"),
         ],
-        []
+        [
+        ]
     ]
 
     castings = [
@@ -203,7 +215,7 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
         LoadedTables(
             movies=spark.createDataFrame(movies[i], schema_movies),
             actors=spark.createDataFrame(actors[i], schema_actors),
-            directors=spark.createDataFrame(actors[i], schema_directors),
+            directors=spark.createDataFrame(directors[i], schema_directors),
             castings=spark.createDataFrame(castings[i], schema_castings)
         )
         for i in range(len(movies))
@@ -352,24 +364,39 @@ def test_datavault_transformatios(spark: SparkSession):
     batch = 0
     load_from_prepared_staging_table(raw_vault, batch)
 
-    sat_effectivity_table_name = DV_CONV.link_name("MOVIES_DIRECTORS")
-    sat_effectivity_table_name = f'{config.raw_database_name}.{sat_effectivity_table_name}'
-    spark.table(sat_effectivity_table_name).show()
+    # batch = 1
+    # load_from_prepared_staging_table(raw_vault, batch)
+
+    # batch = 2
+    # load_from_prepared_staging_table(raw_vault, batch)
+
+    # sat_effectivity_table_name = DV_CONV.link_name("MOVIES_DIRECTORS")
+    # sat_effectivity_table_name = f'{config.raw_database_name}.{sat_effectivity_table_name}'
+    # spark.table(sat_effectivity_table_name).show()
 
     # tests
     df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{batch}')
     df_actors = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{batch}')
+    df_directors = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_{batch}')
     df_castings = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_CASTINGS}_{batch}')
 
     df_hub_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_hub_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS)}')
+    df_hub_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_link_castings = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS)}')
+    df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name("MOVIES_DIRECTORS")}')
     df_sat_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_sat_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}')
 
+    df_sat_effectivity_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_MOVIES)}')
+    df_sat_effectivity_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_ACTORS)}')
+    df_sat_effectivity_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_DIRECTORS)}')
+    df_sat_effectivity_casting = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_CASTINGS)}')
+    df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name("MOVIES_DIRECTORS")}')
+
     # Hub for movie "The Shawshank Redemption", 1994 -> exists
     movie = df_movies \
-        .filter(df_movies.ID == 1) \
+        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_hub_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -378,7 +405,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Hub for actor "Tim Robbins" -> exists
     actor = df_actors \
-        .filter(df_actors.ID == 1) \
+        .filter((df_actors.ID == 1) & (df_actors["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_hub_actors \
         .filter(col(DV_CONV.hkey_column_name()) == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -404,7 +431,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rating of movie "The Shawshank Redemption", 1994, is 9,1
     movie = df_movies \
-        .filter(df_movies.ID == 1) \
+        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rating = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -416,7 +443,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rank of movie "The Shawshank Redemption", 1994, is 64
     movie = df_movies \
-        .filter(df_movies.ID == 1) \
+        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rank = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -429,7 +456,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Country of actor "Tim Robbins" is "USA"
     actor = df_actors \
-        .filter(df_actors.ID == 1) \
+        .filter((df_actors.ID == 1) & (df_actors["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     country = df_sat_actors \
         .filter(col(DV_CONV.hkey_column_name()) == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -446,17 +473,26 @@ def test_datavault_transformatios(spark: SparkSession):
     # tests
     df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{batch}')
     df_actors = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{batch}')
+    df_directors = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_{batch}')
     df_castings = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_CASTINGS}_{batch}')
 
     df_hub_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_hub_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS)}')
+    df_hub_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_link_castings = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS)}')
+    df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name("MOVIES_DIRECTORS")}')
     df_sat_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_sat_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}')
 
+    df_sat_effectivity_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_MOVIES)}')
+    df_sat_effectivity_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_ACTORS)}')
+    df_sat_effectivity_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_DIRECTORS)}')
+    df_sat_effectivity_casting = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_CASTINGS)}')
+    df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name("MOVIES_DIRECTORS")}')
+
     # # Rating of movie "The Shawshank Redemption", 1994, is 9,6
     movie = df_movies \
-        .filter(df_movies.ID == 1) \
+        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rating = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -468,7 +504,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # # Rank of movie "The Shawshank Redemption", 1994, is 2
     movie = df_movies \
-        .filter(df_movies.ID == 1) \
+        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rank = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -485,17 +521,26 @@ def test_datavault_transformatios(spark: SparkSession):
     # tests
     df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{batch}')
     df_actors = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{batch}')
+    df_directors = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_{batch}')
     df_castings = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_CASTINGS}_{batch}')
 
     df_hub_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_hub_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS)}')
+    df_hub_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_link_castings = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS)}')
+    df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name("MOVIES_DIRECTORS")}')
     df_sat_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_sat_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}')
 
+    df_sat_effectivity_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_MOVIES)}')
+    df_sat_effectivity_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_ACTORS)}')
+    df_sat_effectivity_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_DIRECTORS)}')
+    df_sat_effectivity_casting = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_CASTINGS)}')
+    df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name("MOVIES_DIRECTORS")}')
+
     # Rating of movie "The Shawshank Redemption", 1994, is 9,5
     movie = df_movies \
-        .filter(df_movies.ID == 1) \
+        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rating = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -507,7 +552,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rank of movie "The Shawshank Redemption", 1994, is 3
     movie = df_movies \
-        .filter(df_movies.ID == 1) \
+        .filter((df_movies.ID == 1) & (df_movies["$__OPERATION"] != Operation.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rank = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
