@@ -1,10 +1,16 @@
 spark: SparkSession = None
+
 #
 #
 ####################################################################################################################################
 ####################################################################################################################################
 #
 #
+
+#
+# The following cell is acopy from raw.DataVaultShared - Please only make changes there! And copy paste changes here.
+#
+
 import pyspark.sql.functions as F
 
 from pyspark.sql import Column
@@ -281,6 +287,10 @@ class LinkedHubDefinition:
 ####################################################################################################################################
 ####################################################################################################################################
 #
+#
+
+#
+# The following cell is a copy from raw.LoadRaw - Please make changes there and copy/ paste changes here.
 #
 
 import pyspark.sql.functions as F
