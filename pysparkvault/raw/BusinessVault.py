@@ -6,7 +6,6 @@ from typing import List, Optional, Union
 
 from .DataVaultShared import *
 
-
 class BusinessVaultConfiguration:
 
     def __init__(self, source_system_name: str) -> None:
@@ -37,7 +36,7 @@ class BusinessVault:
             .drop(df_ref_left[id_column]) \
             .drop(df_ref_left[self.conventions.ref_group_column_name()]) \
             .drop(df_ref_left[self.conventions.load_date_column_name()]) \
-            .write.mode('overwrite').saveAsTable(ref_active_table_name) # TODO mw: Write to currated database.
+            .write.mode('overwrite').saveAsTable(f"`{self.config.raw_database_name}`.`{ref_active_table_name}`") # TODO mw: Write to curated database.
 
     def initialize_database(self) -> None:
         """
@@ -83,21 +82,21 @@ class BusinessVault:
 
     def zip_historized_dataframes(
         self, left: DataFrame, right: DataFrame, on: Union[str, List[str], Column, List[Column]], how: str = 'inner',
-        left_load_date_column: Optional[str] = None, left_load_end_date_column: Optional[str] = None,
-        right_load_date_column: Optional[str] = None, right_load_end_date_column: Optional[str] = None,
+        left_load_date_column: Optional[Column] = None, left_load_end_date_column: Optional[Column] = None,
+        right_load_date_column: Optional[Column] = None, right_load_end_date_column: Optional[Column] = None,
         load_date_column: Optional[str] = None, load_end_date_column: Optional[str] = None):
 
         if left_load_date_column is None:
-            left_load_date_column = self.conventions.load_date_column_name()
+            left_load_date_column = left[self.conventions.load_date_column_name()]
 
         if left_load_end_date_column is None:
-            left_load_end_date_column = self.conventions.load_end_date_column_name()
+            left_load_end_date_column = left[self.conventions.load_end_date_column_name()]
 
         if right_load_date_column is None:
-            right_load_date_column = self.conventions.load_date_column_name()
+            right_load_date_column = right[self.conventions.load_date_column_name()]
 
         if right_load_end_date_column is None:
-            right_load_end_date_column = self.conventions.load_end_date_column_name()
+            right_load_end_date_column = right[self.conventions.load_end_date_column_name()]
 
         if load_date_column is None:
             load_date_column = self.conventions.load_date_column_name()
@@ -105,40 +104,26 @@ class BusinessVault:
         if load_end_date_column is None:
             load_end_date_column = self.conventions.load_end_date_column_name()
 
-        left_load_date_column_tmp = f"{left_load_date_column}__LEFT"
-        left_load_end_date_column_tmp = f"{left_load_end_date_column}__LEFT"
-
-        right_load_date_column_tmp = f"{right_load_date_column}__RIGHT"
-        right_load_end_date_column_tmp = f"{right_load_end_date_column}__RIGHT"
-
-        left = left \
-            .withColumnRenamed(left_load_date_column, left_load_date_column_tmp) \
-            .withColumnRenamed(left_load_end_date_column, left_load_end_date_column_tmp)
-
-        right = right \
-            .withColumnRenamed(right_load_date_column, right_load_date_column_tmp) \
-            .withColumnRenamed(right_load_end_date_column, right_load_end_date_column_tmp)
-
         result = left \
             .join(right, on, how=how)
 
         result = result \
-            .filter(result[right_load_end_date_column_tmp] > result[left_load_date_column_tmp]) \
-            .filter(result[left_load_end_date_column_tmp] > result[right_load_date_column_tmp]) \
+            .filter(right_load_end_date_column.isNull() | left_load_date_column.isNull() | (right_load_end_date_column > left_load_date_column)) \
+            .filter(left_load_end_date_column.isNull() | right_load_date_column.isNull() | (left_load_end_date_column > right_load_date_column)) \
             .withColumn(
-                load_date_column, 
-                F.greatest(result[left_load_date_column_tmp], result[right_load_date_column_tmp])) \
+                '$__LOAD_DATE__TMP', 
+                F.greatest(left_load_date_column, right_load_date_column)) \
             .withColumn(
-                load_end_date_column,
-                F.least(result[left_load_end_date_column_tmp], result[right_load_end_date_column_tmp]))
+                '$__LOAD_END_DATE_TMP',
+                F.least(left_load_end_date_column, right_load_end_date_column))
         
-        result = result \
-            .drop(left_load_date_column_tmp) \
-            .drop(left_load_end_date_column_tmp) \
-            .drop(right_load_date_column_tmp) \
-            .drop(right_load_end_date_column_tmp)
-
-        return result
+        return result \
+            .drop(left_load_date_column) \
+            .drop(left_load_end_date_column) \
+            .drop(right_load_date_column) \
+            .drop(right_load_end_date_column) \
+            .withColumnRenamed('$__LOAD_DATE__TMP', load_date_column) \
+            .withColumnRenamed('$__LOAD_END_DATE_TMP', load_end_date_column)
 
     def join_linked_hubs(
         self, 
@@ -161,28 +146,41 @@ class BusinessVault:
         from_df: DataFrame,
         to_df: DataFrame,
         link_table_name: str,
-        from_hkey_column_name: str,
-        to_hkey_column_name: str,
-        remove_hkeys: bool = False) -> DataFrame:
+        lnk_from_hkey_column_name: str,
+        lnk_to_hkey_column_name: str,
+        from_df_hkey: Optional[Column] = None,
+        to_df_hkey: Optional[Column] = None,
+        from_load_date_column: Optional[Column] = None, 
+        from_load_end_date_column: Optional[Column] = None,
+        to_load_date_column: Optional[Column] = None, 
+        to_load_end_date_column: Optional[Column] = None,
+        load_date_column: Optional[str] = None, 
+        load_end_date_column: Optional[str] = None) -> DataFrame:
+
+        if from_df_hkey is None:
+            from_df_hkey = from_df[self.conventions.hkey_column_name()]
+
+        if to_df_hkey is None:
+            to_df_hkey = to_df[self.conventions.hkey_column_name()]
 
         link_table_name = self.conventions.link_name(link_table_name)
         lnk_df = self.spark.table(f"`{self.config.raw_database_name}`.`{link_table_name}`")
 
-        result = self \
+        return self \
             .zip_historized_dataframes(
                 lnk_df \
                     .drop(lnk_df[self.conventions.load_date_column_name()]) \
-                    .join(from_df, lnk_df[from_hkey_column_name] == from_df[self.conventions.hkey_column_name()]),
-                to_df,
-                lnk_df[to_hkey_column_name] == to_df[self.conventions.hkey_column_name()])
-
-        if remove_hkeys:
-            result = result \
-                .drop(lnk_df[self.conventions.hkey_column_name()]) \
-                .drop(lnk_df[self.conventions.record_source_column_name()]) \
-                .drop(lnk_df[from_hkey_column_name]) \
-                .drop(lnk_df[to_hkey_column_name]) \
-                .drop(from_df[self.conventions.hkey_column_name()]) \
-                .drop(to_df[self.conventions.hkey_column_name()])
-
-        return result
+                    .join(from_df, lnk_df[lnk_from_hkey_column_name] == from_df_hkey, how="right") \
+                    .drop(lnk_df[self.conventions.hkey_column_name()]) \
+                    .drop(lnk_df[self.conventions.record_source_column_name()]),
+                to_df, 
+                lnk_df[lnk_to_hkey_column_name] == to_df_hkey, 
+                how='left', 
+                left_load_date_column=from_load_date_column,
+                left_load_end_date_column=from_load_end_date_column,
+                right_load_date_column=to_load_date_column,
+                right_load_end_date_column=to_load_end_date_column,
+                load_date_column=load_date_column,
+                load_end_date_column=load_end_date_column) \
+            .drop(lnk_from_hkey_column_name) \
+            .drop(lnk_to_hkey_column_name)
