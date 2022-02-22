@@ -8,7 +8,7 @@ from pyspark.sql.dataframe import DataFrame
 from pyspark.sql.functions import col
 from pyspark.sql.session import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, IntegerType, DoubleType
-from pysparkvault.raw.RawVault import ColumnDefinition, ColumnReference, DataVaultConfiguration, DataVaultConventions, ForeignKey, LinkedHubDefinition, RawVault, SatelliteDefinition
+from pysparkvault.raw.RawVault import ColumnDefinition, ColumnReference, RawVaultConfiguration, DataVaultConventions, ForeignKey, LinkedHubDefinition, RawVault, SatelliteDefinition
 
 
 # global variables
@@ -357,7 +357,7 @@ def test_datavault_transformatios(spark: SparkSession):
     data: List[LoadedTables] = create_sample_data(spark)
 
     # initialize raw vault
-    config = DataVaultConfiguration(
+    config = RawVaultConfiguration(
         SOURCE_SYSTEM_NAME, STAGING_BASE_PATH, STAGING_PREPARED_BASE_PATH, RAW_BASE_PATH, 
         DV_CONV.LOAD_DATE, DV_CONV.CDC_OPERATION, "")
     raw_vault = RawVault(spark, config, DV_CONV)
@@ -852,7 +852,7 @@ def test_pit_tables(spark: SparkSession):
     """
 
     # initialize raw vault
-    config = DataVaultConfiguration(
+    config = RawVaultConfiguration(
         SOURCE_SYSTEM_NAME, STAGING_BASE_PATH, STAGING_PREPARED_BASE_PATH, RAW_BASE_PATH, 
         DV_CONV.LOAD_DATE, DV_CONV.CDC_OPERATION, "")
     raw_vault = RawVault(spark, config, DV_CONV)
