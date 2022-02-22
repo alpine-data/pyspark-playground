@@ -1,6 +1,8 @@
+import pytest
+
 from datetime import datetime, timedelta
 from os import listdir
-from typing import List, TypedDict
+from typing import ByteString, List, TypedDict
 
 from pyspark.sql.dataframe import DataFrame
 from pyspark.sql.functions import col
@@ -113,11 +115,11 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_4, 6, "Schindler's List", 1993, None, 8.8, 125),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_4, 1, "The Shawshank Redemption", 1994, None, 9.2, 67),
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
-            (DV_CONV.CDC_OPERATIONS.DELETE, T_4, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
             (DV_CONV.CDC_OPERATIONS.CREATE, T_4, 3, "The Dark Knight", 2008, 3, 9.0, 104),
+            (DV_CONV.CDC_OPERATIONS.DELETE, T_0, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500)
         ],
         [
-            (DV_CONV.CDC_OPERATIONS.CREATE, T_5, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
+            (DV_CONV.CDC_OPERATIONS.DELETE, T_5, 3, "The Dark Knight", 2008, 3, 9.0, 104),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 2, "The Godfather", 1972, 2, 9.1, 96),
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 2, "The Godfather", 1972, 3, 8.9, 103),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.8, 125),
@@ -330,6 +332,18 @@ def load_from_prepared_staging_table(raw_vault: RawVault, batch: int):
     
     raw_vault.load_link_for_linked_source_tables_from_prepared_staging_tables(f"{STAGING_TABLE_NAME_MOVIES}_{batch}", SOURCE_TABLE_NAME_DIRECTORS,
         ForeignKey("DIRECTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_DIRECTORS}_{batch}", "ID")), LINK_TABLE_NAME_MOVIES_DIRECTORS, "HKEY_MOVIES", "HKEY_DIRECTORS")
+
+
+def create_pit_tables(raw_vault: RawVault) -> None:
+    """
+    Creates PIT tables for all satellites.
+
+    :param raw_vault - The RawVault object needed for creating PIT tables.
+    """
+
+    raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_MOVIES, SOURCE_TABLE_NAME_MOVIES)
+    raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_ACTORS, SOURCE_TABLE_NAME_ACTORS)
+    raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_DIRECTORS, SOURCE_TABLE_NAME_DIRECTORS)
 
 
 def test_datavault_transformatios(spark: SparkSession):
@@ -766,8 +780,6 @@ def test_datavault_transformatios(spark: SparkSession):
         .filter( \
             (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
             (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
-    df_sat_effectivity_movies_directors \
-        .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]).show()
     assert df_sat_effectivity_movies_directors \
         .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
@@ -830,3 +842,60 @@ def test_datavault_transformatios(spark: SparkSession):
         .collect()[0][0]
     assert movie.select("RANK").collect()[0][0] == rank, \
         f'The queried rank of movie {movie.select("NAME").collect()[0][0]} is {rank}. Correct would be {movie.select("RANK").collect()[0][0]}.'
+
+
+def test_pit_tables(spark: SparkSession):
+    """
+    Executes several test cases for PIT table generation.
+
+    :param spark - The active spark session.
+    """
+
+    # initialize raw vault
+    config = DataVaultConfiguration(
+        SOURCE_SYSTEM_NAME, STAGING_BASE_PATH, STAGING_PREPARED_BASE_PATH, RAW_BASE_PATH, 
+        DV_CONV.LOAD_DATE, DV_CONV.CDC_OPERATION, "")
+    raw_vault = RawVault(spark, config, DV_CONV)
+
+    # create the PIT tables
+    create_pit_tables(raw_vault)
+    
+    # tests
+    df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{0}')
+    df_hub_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES)}')
+    df_pit = spark.table(f'{config.raw_database_name}.{DV_CONV.pit_name(SOURCE_TABLE_NAME_MOVIES)}')
+    df_sat_effectivity_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_MOVIES)}')
+
+    # Movie "The Dark Knight", 2008: load_end_date == delete_date
+    movie = df_movies \
+        .filter((df_movies.ID == 3) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    
+    df_hub_movie = df_hub_movies \
+        .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0])
+    
+    delete_date = df_hub_movie.join(df_sat_effectivity_movies, df_hub_movie[DV_CONV.hkey_column_name()] == df_sat_effectivity_movies[DV_CONV.hkey_column_name()]) \
+        .filter(col(DV_CONV.deleted_column_name()) == True) \
+        .select(df_sat_effectivity_movies[DV_CONV.load_date_column_name()]).collect()[0][0]
+
+    load_end_date = df_hub_movie.join(df_pit, df_hub_movie[DV_CONV.hkey_column_name()] == df_pit[DV_CONV.hkey_column_name()]) \
+        .select(df_pit[DV_CONV.load_end_date_column_name()]) \
+        .orderBy([col(DV_CONV.load_end_date_column_name()).desc()]).collect()[0][0]
+    
+    assert delete_date == load_end_date, \
+        f'The load_end_date {load_end_date} is not correct. Correct would be {delete_date}.'
+
+    # Movie "The Shawshank Redemption", 1994: load_end_date == datetime.max
+    movie = df_movies \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    
+    df_hub_movie = df_hub_movies \
+        .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0])
+
+    load_end_date = df_hub_movie.join(df_pit, df_hub_movie[DV_CONV.hkey_column_name()] == df_pit[DV_CONV.hkey_column_name()]) \
+        .select(df_pit[DV_CONV.load_end_date_column_name()]) \
+        .orderBy([col(DV_CONV.load_end_date_column_name()).desc()]).collect()[0][0]
+    
+    assert load_end_date == datetime.max, \
+        f'The load_end_date {load_end_date} is not correct. Correct would be {datetime.max}.'
