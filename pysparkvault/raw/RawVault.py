@@ -1,16 +1,12 @@
-from datetime import datetime
-from json import load
-from ntpath import join
-from select import select
-from traceback import print_tb
 import pyspark.sql.functions as F
+
+from datetime import datetime
+from typing import List, Optional
 
 from delta.tables import *
 from pyspark.sql import DataFrame, Column
 from pyspark.sql.types import BooleanType, DataType
 from pyspark.sql.session import SparkSession
-from typing import List, Optional, Union
-
 from pyspark.sql.types import StringType, StructField, StructType,TimestampType
 
 
@@ -47,6 +43,7 @@ class DataVaultFunctions:
 
         return F.to_timestamp(F.col(column_name), pattern);
 
+
 class CDCOperations:
 
     def __init__(self, snapshot = 0, delete = 1, create = 2, before_update = 3, update = 4):
@@ -55,6 +52,7 @@ class CDCOperations:
         self.CREATE = create
         self.BEFORE_UPDATE = before_update
         self.UPDATE = update
+
 
 class DataVaultConventions:
 
@@ -380,21 +378,20 @@ class RawVault:
 
         :param satellite_name - The name of the satellite from which the PIT is derived.
         """
-        sat_name = f'{self.config.raw_database_name}.{self.conventions.sat_name(satellite_name)}'
+        sat_table_name = f'{self.config.raw_database_name}.{self.conventions.sat_name(satellite_name)}'
+        sat_effectivity_table_name = f'{self.config.raw_database_name}.{self.conventions.sat_effectivity_name(satellite_name)}'
         pit_table_name = f'{self.config.raw_database_name}.{self.conventions.pit_name(pit_name)}'
 
-        df = self.spark.table(sat_name)
-        df \
-            .alias('l') \
-            .join(df.alias('r'), F.col('l.$__HKEY') == F.col('r.$__HKEY')) \
-            .select(F.col('l.$__HKEY').alias('$__HKEY'), F.col('l.$__LOAD_DATE').alias('$__LOAD_END_DATE'))
+        sat_effectivity_df = self.spark.table(sat_effectivity_table_name)
+        sat_df = self.spark.table(sat_table_name)
+        
+        join_condition = [
+            (F.col(f'l.{self.conventions.hkey_column_name()}') == F.col(f'r.{self.conventions.hkey_column_name()}')) &
+            (F.col(f'l.{self.conventions.load_date_column_name()}') < F.col(f'r.{self.conventions.load_date_column_name()}'))
+        ]
 
-        df = df \
-            .alias('l') \
-            .join(df.alias('r'), [
-                    (F.col(f'l.{self.conventions.hkey_column_name()}') == F.col(f'r.{self.conventions.hkey_column_name()}')) & \
-                    (F.col(f'l.{self.conventions.load_date_column_name()}') < F.col(f'r.{self.conventions.load_date_column_name()}')) \
-                ], how='left') \
+        pit_df = sat_df.alias('l') \
+            .join(sat_df.alias('r'), join_condition, how='left') \
             .select(
                 F.col(f'l.{self.conventions.hkey_column_name()}'), 
                 F.col(f'l.{self.conventions.load_date_column_name()}'), 
@@ -402,14 +399,23 @@ class RawVault:
             .groupBy(
                 F.col(self.conventions.hkey_column_name()),
                 F.col(self.conventions.load_date_column_name())) \
-            .agg(
-                F.min(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name())
-            ) \
+            .agg(F.min(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name()))
+
+        # join with effectivity satellite to extract deleted flag -> set load_end_date if deleted is true
+        pit_df = pit_df \
+            .join(sat_effectivity_df.alias('r'), join_condition, how="left") \
+            .drop(F.col(f'r.{self.conventions.hkey_column_name()}')) \
+            .drop(F.col(f'r.{self.conventions.hdiff_column_name()}')) \
             .withColumn(
                 self.conventions.load_end_date_column_name(), 
-                F \
-                    .when(F.isnull(self.conventions.load_end_date_column_name()), datetime.max) \
-                    .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
+                F.when(F.col(self.conventions.deleted_column_name()) == True, F.col(f'r.{self.conventions.load_date_column_name()}')) \
+                .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
+            .withColumn(
+                self.conventions.load_end_date_column_name(), 
+                F.when(F.isnull(self.conventions.load_end_date_column_name()), datetime.max) \
+                .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
+            .drop(F.col(f'r.{self.conventions.deleted_column_name()}')) \
+            .drop(F.col(f'r.{self.conventions.load_date_column_name()}')) \
             .write.mode('overwrite').saveAsTable(pit_table_name)
 
     def create_satellite(self, name: str, attribute_columns: List[ColumnDefinition]) -> None:
@@ -478,7 +484,7 @@ class RawVault:
             .withColumn(self.conventions.cdc_load_date_column_name(), staged_df[self.conventions.load_date_column_name()]) \
             .withColumn(self.conventions.load_date_column_name(), F.current_timestamp()) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
-        
+
         self.load_effectivity_satellite_from_prepared_stage_dataframe(staged_df, sat_effectivity_table_name)
 
         for satellite in satellites:
@@ -552,10 +558,11 @@ class RawVault:
         ]
 
         join_condition = staged_from_df[from_staging_foreign_key.column] == staged_to_df[from_staging_foreign_key.to.column]
+        current_timestamp = F.current_timestamp()
         joined_df = staged_from_df \
             .join(staged_to_df, join_condition) \
             .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
-            .withColumn(self.conventions.load_date_column_name(), F.current_timestamp()) \
+            .withColumn(self.conventions.load_date_column_name(), current_timestamp) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
             .select(columns) \
             .distinct()
@@ -638,7 +645,7 @@ class RawVault:
             .join(staged_to_df, join_condition, how="left") \
             .withColumnRenamed(self.conventions.load_date_column_name(), self.conventions.cdc_load_date_column_name()) \
             .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
-            .withColumn(self.conventions.load_date_column_name(), F.current_timestamp()) \
+            .withColumn(self.conventions.load_date_column_name(), current_timestamp) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
             .select(columns) \
             .distinct()
@@ -725,7 +732,7 @@ class RawVault:
             staged_df[self.conventions.cdc_load_date_column_name()] == max_dates_df[self.conventions.max_cdc_load_date_column_name()]]
 
         staged_df = staged_df \
-            .join(max_dates_df, join_condition, how="left") \
+            .join(max_dates_df, join_condition) \
             .filter(staged_df[self.conventions.cdc_operation_column_name()].isin(allowed_cdc_operations)) \
             .drop(max_dates_df[self.conventions.hkey_column_name()])
 
@@ -736,7 +743,7 @@ class RawVault:
 
         join_condition = [sat_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], \
             sat_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
-        
+
         # TODO mw: Remove  distinct() for performance reasons? Should not happen in any case.
         # filter() excludes BEFORE_UPDATE and DELETE operations that would cause inconsistencies
         staged_df \
@@ -801,22 +808,16 @@ class RawVault:
         :param hkey_columns - Optional. Column names which should be used to calculate a hash key.
         """
 
-        #
-        # Load source data from Parquet file.
-        #
+        # load source data from Parquet file.
         df = self.spark.read.load(f'{self.config.staging_base_path}/{source}', format='parquet')
 
-        #
-        # Add DataVault specific columns
-        #
+        # add DataVault specific columns
         df = df \
             .withColumnRenamed(self.config.staging_load_date_column_name, self.conventions.load_date_column_name()) \
             .withColumnRenamed(self.config.staging_cdc_operation_column_name, self.conventions.cdc_operation_column_name()) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name))
 
-        #
-        # Update load_date in case of snapshot load (CDC Operation < 1).
-        #
+        # update load_date in case of snapshot load (CDC Operation < 1).
         if self.config.snapshot_override_load_date_based_on_column in df.columns:
             df = df.withColumn(
                 self.conventions.load_date_column_name(), 
@@ -827,9 +828,7 @@ class RawVault:
         if len(hkey_columns) > 0: 
             df = df.withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash(hkey_columns))
 
-        #
-        # Write staged table into staging area.
-        #
+        # write staged table into staging area.
         df.write.mode('overwrite').saveAsTable(f'{self.config.staging_prepared_database_name}.{name}')
 
     def __create_external_table(self, database: str, name: str, columns: List[ColumnDefinition]) -> None:
@@ -842,152 +841,3 @@ class RawVault:
         schema = StructType([ StructField(c.name, c.type, c.nullable) for c in columns ])
         df: DataFrame = self.spark.createDataFrame([], schema)
         df.write.mode('ignore').saveAsTable(f'{database}.{name}')
-
-
-class BusinessVault:
-
-    def __init__(self, spark: SparkSession, config: DataVaultConfiguration, conventions: DataVaultConventions = DataVaultConventions()) -> None:
-        self.spark = spark
-        self.config = config
-        self.conventions = conventions
-
-    def read_data_from_hub_sat_and_pit(self, hub_name: str, sat_name: str, pit_name: str, attributes: List[str], include_hkey: bool = False) -> DataFrame:
-        df_pit = self.spark.table(f"`{self.config.raw_database_name}`.`{pit_name}`")
-        df_sat = self.spark.table(f"`{self.config.raw_database_name}`.`{sat_name}`")
-        df_hub = self.spark.table(f"`{self.config.raw_database_name}`.`{hub_name}`")
-
-        hub_attributes = list(set(df_hub.columns) & set(attributes))
-        sat_attributes = list(set(df_sat.columns) & set(attributes))
-        hub_attributes = list([df_hub[column] for column in hub_attributes])
-        sat_attributes = list([df_sat[column] for column in sat_attributes])
-
-        if include_hkey:
-            hub_attributes = hub_attributes + [df_hub[self.conventions.hkey_column_name()]]
-
-        attribute_columns = hub_attributes + sat_attributes
-
-        return df_pit \
-            .join(df_sat, (
-                (df_pit[self.conventions.hkey_column_name()] == df_sat[self.conventions.hkey_column_name()]) & \
-                (df_pit[self.conventions.load_date_column_name()] == df_sat[self.conventions.load_date_column_name()]))) \
-            .join(df_hub, df_hub[self.conventions.hkey_column_name()] == df_pit[self.conventions.hkey_column_name()]) \
-            .select(attribute_columns + [df_pit[self.conventions.load_date_column_name()], df_pit[self.conventions.load_end_date_column_name()]]) \
-            .groupBy(attribute_columns) \
-            .agg(
-                F.min(self.conventions.load_date_column_name()).alias(self.conventions.load_date_column_name()), 
-                F.max(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name()))
-
-    def read_data_from_hub(self, name: str, attributes: List[str], include_hkey: bool = False) -> DataFrame:
-        name = self.conventions.remove_prefix(name)
-
-        hub_name = self.conventions.hub_name(name)
-        sat_name = self.conventions.sat_name(name)
-        pit_name = self.conventions.pit_name(name)
-
-        return self.read_data_from_hub_sat_and_pit(hub_name, sat_name, pit_name, attributes, include_hkey)
-
-    def zip_historized_dataframes(
-        self, left: DataFrame, right: DataFrame, on: Union[str, List[str], Column, List[Column]], how: str = 'inner',
-        left_load_date_column: Optional[str] = None, left_load_end_date_column: Optional[str] = None,
-        right_load_date_column: Optional[str] = None, right_load_end_date_column: Optional[str] = None,
-        load_date_column: Optional[str] = None, load_end_date_column: Optional[str] = None):
-
-        if left_load_date_column is None:
-            left_load_date_column = self.conventions.load_date_column_name()
-
-        if left_load_end_date_column is None:
-            left_load_end_date_column = self.conventions.load_end_date_column_name()
-
-        if right_load_date_column is None:
-            right_load_date_column = self.conventions.load_date_column_name()
-
-        if right_load_end_date_column is None:
-            right_load_end_date_column = self.conventions.load_end_date_column_name()
-
-        if load_date_column is None:
-            load_date_column = self.conventions.load_date_column_name()
-
-        if load_end_date_column is None:
-            load_end_date_column = self.conventions.load_end_date_column_name()
-
-        left_load_date_column_tmp = f"{left_load_date_column}__LEFT"
-        left_load_end_date_column_tmp = f"{left_load_end_date_column}__LEFT"
-
-        right_load_date_column_tmp = f"{right_load_date_column}__RIGHT"
-        right_load_end_date_column_tmp = f"{right_load_end_date_column}__RIGHT"
-
-        left = left \
-            .withColumnRenamed(left_load_date_column, left_load_date_column_tmp) \
-            .withColumnRenamed(left_load_end_date_column, left_load_end_date_column_tmp)
-
-        right = right \
-            .withColumnRenamed(right_load_date_column, right_load_date_column_tmp) \
-            .withColumnRenamed(right_load_end_date_column, right_load_end_date_column_tmp)
-
-        result = left \
-            .join(right, on, how=how)
-
-        result = result \
-            .filter(result[right_load_end_date_column_tmp] > result[left_load_date_column_tmp]) \
-            .filter(result[left_load_end_date_column_tmp] > result[right_load_date_column_tmp]) \
-            .withColumn(
-                load_date_column, 
-                F.greatest(result[left_load_date_column_tmp], result[right_load_date_column_tmp])) \
-            .withColumn(
-                load_end_date_column,
-                F.least(result[left_load_end_date_column_tmp], result[right_load_end_date_column_tmp]))
-        
-        result = result \
-            .drop(left_load_date_column_tmp) \
-            .drop(left_load_end_date_column_tmp) \
-            .drop(right_load_date_column_tmp) \
-            .drop(right_load_end_date_column_tmp)
-
-        return result
-
-    def join_linked_hubs(
-        self, 
-        from_name: str, 
-        to_name: str, 
-        link_table_name: str,
-        from_hkey_column_name: str,
-        to_hkey_column_name: str,
-        from_attributes: List[str],
-        to_attributes: List[str],
-        remove_hkeys: bool = False) -> DataFrame:
-
-        from_df = self.read_data_from_hub(from_name, from_attributes, True)
-        to_df = self.read_data_from_hub(to_name, to_attributes, True)
-
-        return self.join_linked_dataframes(from_df, to_df, link_table_name, from_hkey_column_name, to_hkey_column_name, remove_hkeys)
-
-    def join_linked_dataframes(
-        self,
-        from_df: DataFrame,
-        to_df: DataFrame,
-        link_table_name: str,
-        from_hkey_column_name: str,
-        to_hkey_column_name: str,
-        remove_hkeys: bool = False) -> DataFrame:
-
-        link_table_name = self.conventions.link_name(link_table_name)
-        lnk_df = self.spark.table(f"`{self.config.raw_database_name}`.`{link_table_name}`")
-
-        result = self \
-            .zip_historized_dataframes(
-                lnk_df \
-                    .drop(lnk_df[self.conventions.load_date_column_name()]) \
-                    .join(from_df, lnk_df[from_hkey_column_name] == from_df[self.conventions.hkey_column_name()]),
-                to_df,
-                lnk_df[to_hkey_column_name] == to_df[self.conventions.hkey_column_name()])
-
-        if remove_hkeys:
-            result = result \
-                .drop(lnk_df[self.conventions.hkey_column_name()]) \
-                .drop(lnk_df[self.conventions.record_source_column_name()]) \
-                .drop(lnk_df[from_hkey_column_name]) \
-                .drop(lnk_df[to_hkey_column_name]) \
-                .drop(from_df[self.conventions.hkey_column_name()]) \
-                .drop(to_df[self.conventions.hkey_column_name()])
-
-        return result
