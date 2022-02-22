@@ -102,27 +102,26 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
             (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 5, "Pulp Fiction", 1994, 5, 8.9, 138),
             (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 6, "Schindler's List", 1993, 6, 8.6, 145),
             (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 7, "Inception", 2010, 7, 8.3, 210),
-            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_2, 3, "The Dark Knight", 2008, 3, 9.0, 104),
-            (DV_CONV.CDC_OPERATIONS.UPDATE, T_2, 3, "The Dark Knight", 2008, 3, 9.1, 97),
+            (DV_CONV.CDC_OPERATIONS.DELETE, T_2, 3, "The Dark Knight", 2008, 3, 9.0, 104),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.7, 485),
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_3, 1, "The Shawshank Redemption", 1994, 1, 9.3, 64),
-            (DV_CONV.CDC_OPERATIONS.UPDATE, T_3, 1, "The Shawshank Redemption", 1994, 1, 9.2, 67),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_3, 1, "The Shawshank Redemption", 1994, None, 9.2, 67),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.2, 94),
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.1, 96),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_4, 6, "Schindler's List", 1993, 6, 8.6, 145),
-            (DV_CONV.CDC_OPERATIONS.UPDATE, T_4, 6, "Schindler's List", 1993, 6, 8.8, 125),
-            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.2, 67),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_4, 6, "Schindler's List", 1993, None, 8.8, 125),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_4, 1, "The Shawshank Redemption", 1994, None, 9.2, 67),
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
             (DV_CONV.CDC_OPERATIONS.DELETE, T_4, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
-            (DV_CONV.CDC_OPERATIONS.DELETE, T_4, 3, "The Dark Knight", 2008, 3, 9.1, 97)
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_4, 3, "The Dark Knight", 2008, 3, 9.0, 104),
         ],
         [
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_5, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 2, "The Godfather", 1972, 2, 9.1, 96),
-            (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 2, "The Godfather", 1972, 2, 8.9, 103),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 2, "The Godfather", 1972, 3, 8.9, 103),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.8, 125),
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.3, 210),
-            (DV_CONV.CDC_OPERATIONS.CREATE, T_5, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 1, "The Shawshank Redemption", 1994, None, 9.5, 3)
         ]
@@ -191,11 +190,16 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
             (DV_CONV.CDC_OPERATIONS.SNAPSHOT, T_0, 4, 12)
         ],
         [
+            (DV_CONV.CDC_OPERATIONS.DELETE, T_1, 1, 1),
+            (DV_CONV.CDC_OPERATIONS.DELETE, T_1, 1, 2),
             (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 5, 16),
             (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 6, 17),
             (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 6, 18),
             (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 6, 19),
-            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 7, 20)
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_2, 7, 20),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_3, 7, 20),
+            (DV_CONV.CDC_OPERATIONS.UPDATE, T_3, 7, 19),
+            (DV_CONV.CDC_OPERATIONS.CREATE, T_3, 1, 1),
         ],
         [
             (DV_CONV.CDC_OPERATIONS.CREATE, T_5, 7, 19)
@@ -320,11 +324,11 @@ def load_from_prepared_staging_table(raw_vault: RawVault, batch: int):
     raw_vault.load_link_from_prepared_stage_table(
         f"{STAGING_TABLE_NAME_CASTINGS}_{batch}", 
         [
-            LinkedHubDefinition("HKEY_MOVIES", ForeignKey("MOVIE_ID", ColumnReference(f"{STAGING_TABLE_NAME_MOVIES}_{batch}", "ID"))),
-            LinkedHubDefinition("HKEY_ACTORS", ForeignKey("ACTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_ACTORS}_{batch}", "ID")))
+            LinkedHubDefinition(SOURCE_TABLE_NAME_MOVIES, "HKEY_MOVIES", ForeignKey("MOVIE_ID", ColumnReference(f"{STAGING_TABLE_NAME_MOVIES}_{batch}", "ID"))),
+            LinkedHubDefinition(SOURCE_TABLE_NAME_ACTORS, "HKEY_ACTORS", ForeignKey("ACTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_ACTORS}_{batch}", "ID")))
         ], DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS), None)
     
-    raw_vault.load_link_for_linked_source_tables_from_prepared_staging_tables(f"{STAGING_TABLE_NAME_MOVIES}_{batch}",
+    raw_vault.load_link_for_linked_source_tables_from_prepared_staging_tables(f"{STAGING_TABLE_NAME_MOVIES}_{batch}", SOURCE_TABLE_NAME_DIRECTORS,
         ForeignKey("DIRECTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_DIRECTORS}_{batch}", "ID")), LINK_TABLE_NAME_MOVIES_DIRECTORS, "HKEY_MOVIES", "HKEY_DIRECTORS")
 
 
@@ -356,16 +360,6 @@ def test_datavault_transformatios(spark: SparkSession):
     batch = 0
     load_from_prepared_staging_table(raw_vault, batch)
 
-    # batch = 1
-    # load_from_prepared_staging_table(raw_vault, batch)
-
-    # batch = 2
-    # load_from_prepared_staging_table(raw_vault, batch)
-
-    # sat_effectivity_table_name = DV_CONV.link_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)
-    # sat_effectivity_table_name = f'{config.raw_database_name}.{sat_effectivity_table_name}'
-    # spark.table(sat_effectivity_table_name).show()
-
     # tests
     df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{batch}')
     df_actors = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{batch}')
@@ -395,6 +389,17 @@ def test_datavault_transformatios(spark: SparkSession):
         .count() == 1, \
         f'The movie {movie.select("NAME").collect()[0][0]} was not found or exists multiple times.'
 
+    # Hub for movie "The Shawshank Redemption", 1994 -> not deleted
+    movie = df_movies \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert not df_sat_effectivity_movies \
+        .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The movie {movie.select("NAME").collect()[0][0]} is deleted.'
+    
     # Hub for actor "Tim Robbins" -> exists
     actor = df_actors \
         .filter((df_actors.ID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
@@ -404,15 +409,46 @@ def test_datavault_transformatios(spark: SparkSession):
         .count() == 1, \
         f'The actor {actor.select("NAME").collect()[0][0]} was not found or exists multiple times.'
 
+    # Hub for actor "Tim Robbins" -> not deleted
+    actor = df_actors \
+        .filter((df_actors.ID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert not df_sat_effectivity_actors \
+        .filter(col(DV_CONV.hkey_column_name()) == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The actor {actor.select("NAME").collect()[0][0]} is deleted.'
+
+    # Hub for director "Frank Darabont" -> exists
+    director = df_directors \
+        .filter((df_directors.ID == 1) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert df_hub_directors \
+        .filter(col(DV_CONV.hkey_column_name()) == director.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .count() == 1, \
+        f'The director {director.select("NAME").collect()[0][0]} was not found or exists multiple times.'
+    
+    # Hub for director "Frank Darabont" -> not deleted
+    director = df_directors \
+        .filter((df_directors.ID == 1) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert not df_sat_effectivity_directors \
+        .filter(col(DV_CONV.hkey_column_name()) == director.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The director {director.select("NAME").collect()[0][0]} is deleted.'
+
     # Link between movie "The Shawshank Redemption", 1994 and actor "Tim Robbins" -> exists
     casting = df_castings \
         .filter((col("MOVIE_ID") == 1) & (col("ACTOR_ID") == 1)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     movie = df_movies \
-        .filter(df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) \
+        .filter((df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     actor = df_actors \
-        .filter(df_actors.ID == casting.select("ACTOR_ID").collect()[0][0]) \
+        .filter((df_actors.ID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_link_castings \
         .filter( \
@@ -420,6 +456,59 @@ def test_datavault_transformatios(spark: SparkSession):
             (col("HKEY_ACTORS") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
         .count() == 1, \
         f'{actor.select("NAME").collect()[0][0]} was not casted in {movie.select("NAME").collect()[0][0]} or the link exists multiple times.'
+
+    # Link between movie "The Shawshank Redemption", 1994 and actor "Tim Robbins" -> not deleted
+    casting = df_castings \
+        .filter((col("MOVIE_ID") == 1) & (col("ACTOR_ID") == 1)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    movie = df_movies \
+        .filter((df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    actor = df_actors \
+        .filter((df_actors.ID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    link_casting = df_link_castings \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_ACTORS") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+    assert not df_sat_effectivity_casting \
+        .filter(col(DV_CONV.hkey_column_name()) == link_casting.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The link between movie {movie.select("NAME").collect()[0][0]} and actor {actor.select("NAME").collect()[0][0]} is deleted.'
+    
+    # Link between movie "The Shawshank Redemption", 1994 and director "Frank Darabont" -> exists
+    movie = df_movies \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    director = df_directors \
+        .filter((df_directors.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert df_link_movies_directors \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
+        .count() == 1, \
+        f'{director.select("NAME").collect()[0][0]} did not direct movie {movie.select("NAME").collect()[0][0]} or the link exists multiple times.'
+
+    # Link between movie "The Shawshank Redemption", 1994 and director "Frank Darabont" -> not deleted
+    movie = df_movies \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    director = df_directors \
+        .filter((df_directors.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    link_movies_directors = df_link_movies_directors \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+    assert not df_sat_effectivity_movies_directors \
+        .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The link between movie {movie.select("NAME").collect()[0][0]} and director {director.select("NAME").collect()[0][0]} is deleted.'
 
     # Rating of movie "The Shawshank Redemption", 1994, is 9,1
     movie = df_movies \
@@ -445,7 +534,6 @@ def test_datavault_transformatios(spark: SparkSession):
     assert movie.select("RANK").collect()[0][0] == rank, \
         f'The queried rank of movie {movie.select("NAME").collect()[0][0]} is {rank}. Correct would be {movie.select("RANK").collect()[0][0]}.'
 
-
     # Country of actor "Tim Robbins" is "USA"
     actor = df_actors \
         .filter((df_actors.ID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
@@ -463,6 +551,11 @@ def test_datavault_transformatios(spark: SparkSession):
     load_from_prepared_staging_table(raw_vault, batch)
 
     # tests
+    df_movies_0 = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{batch - 1}')
+    df_actors_0 = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{batch - 1}')
+    df_directors_0 = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_{batch - 1}')
+    df_castings_0 = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_CASTINGS}_{batch - 1}')
+
     df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{batch}')
     df_actors = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{batch}')
     df_directors = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_{batch}')
@@ -482,7 +575,125 @@ def test_datavault_transformatios(spark: SparkSession):
     df_sat_effectivity_casting = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_CASTINGS)}')
     df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
 
-    # # Rating of movie "The Shawshank Redemption", 1994, is 9,6
+    # Hub for movie "The Dark Knight", 2008 -> exists
+    movie = df_movies \
+        .filter((df_movies.ID == 3) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert df_hub_movies \
+        .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .count() == 1, \
+        f'The movie {movie.select("NAME").collect()[0][0]} was not found or exists multiple times.'
+
+    # Hub for movie "The Dark Knight", 2008 -> not deleted
+    movie = df_movies \
+        .filter((df_movies.ID == 3) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert not df_sat_effectivity_movies \
+        .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The movie {movie.select("NAME").collect()[0][0]} is deleted.'
+
+    # Hub for movie "Star Wars: Episode V", 1980 -> exists
+    movie = df_movies \
+        .filter((df_movies.ID == 4) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert df_hub_movies \
+        .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .count() == 1, \
+        f'The movie {movie.select("NAME").collect()[0][0]} was not found or exists multiple times.'
+
+    # Hub for movie "Star Wars: Episode V", 1980 -> deleted
+    movie = df_movies \
+        .filter((df_movies.ID == 4) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert df_sat_effectivity_movies \
+        .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The movie {movie.select("NAME").collect()[0][0]} is not deleted.'
+
+    # Link between movie "The Shawshank Redemption", 1994 and actor "Tim Robbins" -> not deleted
+    casting = df_castings \
+        .filter((col("MOVIE_ID") == 1) & (col("ACTOR_ID") == 1)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    movie = df_movies \
+        .filter((df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    actor = df_actors_0 \
+        .filter((df_actors_0.ID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    link_casting = df_link_castings \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_ACTORS") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+    assert not df_sat_effectivity_casting \
+        .filter(col(DV_CONV.hkey_column_name()) == link_casting.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The link between movie {movie.select("NAME").collect()[0][0]} and actor {actor.select("NAME").collect()[0][0]} is deleted.'
+
+    # Link between movie "The Shawshank Redemption", 1994 and actor "Morgan Freeman" -> deleted
+    casting = df_castings \
+        .filter((col("MOVIE_ID") == 1) & (col("ACTOR_ID") == 2)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    movie = df_movies \
+        .filter((df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    actor = df_actors_0 \
+        .filter((df_actors_0.ID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    link_casting = df_link_castings \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_ACTORS") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+    assert df_sat_effectivity_casting \
+        .filter(col(DV_CONV.hkey_column_name()) == link_casting.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The link between movie {movie.select("NAME").collect()[0][0]} and actor {actor.select("NAME").collect()[0][0]} is not deleted.'
+
+    # Link between movie "The Shawshank Redemption", 1994 and director "Frank Darabont" -> not deleted
+    movie = df_movies \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    director = df_directors_0 \
+        .filter((df_directors_0.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    link_movies_directors = df_link_movies_directors \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+    assert not df_sat_effectivity_movies_directors \
+        .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The link between movie {movie.select("NAME").collect()[0][0]} and director {director.select("NAME").collect()[0][0]} is deleted.'
+
+    # Link between movie "Schindler's List", 1993 and director "Steven Spielberg" -> deleted
+    movie = df_movies \
+        .filter((df_movies.ID == 6) & (df_movies[DV_CONV.cdc_operation_column_name()] == DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    director = df_directors \
+        .filter((df_directors.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    link_movies_directors = df_link_movies_directors \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+    assert df_sat_effectivity_movies_directors \
+        .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The link between movie {movie.select("NAME").collect()[0][0]} and director {director.select("NAME").collect()[0][0]} is not deleted.'
+
+    # Rating of movie "The Shawshank Redemption", 1994, is 9,6
     movie = df_movies \
         .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
@@ -494,7 +705,7 @@ def test_datavault_transformatios(spark: SparkSession):
     assert movie.select("RATING").collect()[0][0] == rating, \
         f'The queried rating of movie {movie.select("NAME").collect()[0][0]} is {rating}. Correct would be {movie.select("RATING").collect()[0][0]}.'
 
-    # # Rank of movie "The Shawshank Redemption", 1994, is 2
+    # Rank of movie "The Shawshank Redemption", 1994, is 2
     movie = df_movies \
         .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
@@ -506,7 +717,7 @@ def test_datavault_transformatios(spark: SparkSession):
     assert movie.select("RANK").collect()[0][0] == rank, \
         f'The queried rank of movie {movie.select("NAME").collect()[0][0]} is {rank}. Correct would be {movie.select("RANK").collect()[0][0]}.'
 
-    # load hubs, satellites, and links from staging batch 1
+    # load hubs, satellites, and links from staging batch 2
     batch = 2
     load_from_prepared_staging_table(raw_vault, batch)
 
@@ -529,6 +740,72 @@ def test_datavault_transformatios(spark: SparkSession):
     df_sat_effectivity_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_sat_effectivity_casting = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_CASTINGS)}')
     df_sat_effectivity_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
+
+    # Link between movie "The Godfather", 1972 and director "Francis Ford Coppola" -> exists
+    movie = df_movies \
+        .filter((df_movies.ID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] == DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    director = df_directors_0 \
+        .filter((df_directors_0.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert df_link_movies_directors \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
+        .count() == 1, \
+        f'{director.select("NAME").collect()[0][0]} did not direct movie {movie.select("NAME").collect()[0][0]} or the link exists multiple times.'
+
+    # Link between movie "The Godfather", 1972 and director "Francis Ford Coppola" -> deleted
+    movie = df_movies \
+        .filter((df_movies.ID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] == DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    director = df_directors_0 \
+        .filter((df_directors_0.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    link_movies_directors = df_link_movies_directors \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+    df_sat_effectivity_movies_directors \
+        .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]).show()
+    assert df_sat_effectivity_movies_directors \
+        .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The link between movie {movie.select("NAME").collect()[0][0]} and director {director.select("NAME").collect()[0][0]} is not deleted.'
+
+    # Link between movie "The Godfather", 1972 and director "Christopher Nolan" -> exists
+    movie = df_movies \
+        .filter((df_movies.ID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    director = df_directors_0 \
+        .filter((df_directors_0.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    assert df_link_movies_directors \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
+        .count() == 1, \
+        f'{director.select("NAME").collect()[0][0]} did not direct movie {movie.select("NAME").collect()[0][0]} or the link exists multiple times.'
+
+    # Link between movie "The Godfather", 1972 and director "Christopher Nolan" -> not deleted
+    movie = df_movies \
+        .filter((df_movies.ID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    director = df_directors_0 \
+        .filter((df_directors_0.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    link_movies_directors = df_link_movies_directors \
+        .filter( \
+            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+    assert not df_sat_effectivity_movies_directors \
+        .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select([DV_CONV.deleted_column_name()]) \
+        .collect()[0][0], \
+        f'The link between movie {movie.select("NAME").collect()[0][0]} and director {director.select("NAME").collect()[0][0]} is deleted.'
 
     # Rating of movie "The Shawshank Redemption", 1994, is 9,5
     movie = df_movies \
@@ -553,4 +830,3 @@ def test_datavault_transformatios(spark: SparkSession):
         .collect()[0][0]
     assert movie.select("RANK").collect()[0][0] == rank, \
         f'The queried rank of movie {movie.select("NAME").collect()[0][0]} is {rank}. Correct would be {movie.select("RANK").collect()[0][0]}.'
-
