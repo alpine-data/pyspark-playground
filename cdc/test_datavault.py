@@ -9,6 +9,7 @@ from pyspark.sql.functions import col
 from pyspark.sql.session import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, IntegerType, DoubleType
 from pysparkvault.raw.RawVault import ColumnDefinition, ColumnReference, RawVaultConfiguration, DataVaultConventions, ForeignKey, LinkedHubDefinition, RawVault, SatelliteDefinition
+from pysparkvault.raw.BusinessVault import BusinessVault, BusinessVaultConfiguration
 
 
 # global variables
@@ -899,3 +900,96 @@ def test_pit_tables(spark: SparkSession):
     
     assert load_end_date == datetime.max, \
         f'The load_end_date {load_end_date} is not correct. Correct would be {datetime.max}.'
+
+
+def test_business_vault(spark: SparkSession):
+    # initialize business vault
+    raw_vault_config = RawVaultConfiguration(
+        SOURCE_SYSTEM_NAME, STAGING_BASE_PATH, STAGING_PREPARED_BASE_PATH, RAW_BASE_PATH, 
+        DV_CONV.LOAD_DATE, DV_CONV.CDC_OPERATION, "")
+    config = BusinessVaultConfiguration(SOURCE_SYSTEM_NAME)
+    business_vault = BusinessVault(spark, config, DV_CONV)
+
+    # tests
+    df_movies = spark.table(f'{raw_vault_config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{2}')
+    df_actors = spark.table(f'{raw_vault_config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{0}')
+    df_directors = spark.table(f'{raw_vault_config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_{1}')
+
+    # Test read_data_from_hub(...) with movie "The Shawshank Redemption", 1994
+    movie = df_movies \
+        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+
+    id = movie.select("ID").collect()[0][0]
+    name = movie.select("NAME").collect()[0][0]
+    year = movie.select("YEAR").collect()[0][0]
+    rating = movie.select("RATING").collect()[0][0]
+    rank = movie.select("RANK").collect()[0][0]
+
+    columns = ["ID", "NAME", "YEAR", "RATING", "RANK"]
+    df = business_vault.read_data_from_hub(SOURCE_TABLE_NAME_MOVIES, columns, include_hkey=True)
+
+    df = df \
+        .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select(columns)
+    
+    assert df.select(columns[0]).collect()[0][0] == id, \
+        f'The attribute {columns[0]} is set to {df.select(columns[0]).collect()[0][0]}. Correct would be {id}.'
+    assert df.select(columns[1]).collect()[0][0] == name, \
+        f'The attribute {columns[1]} is set to {df.select(columns[1]).collect()[0][0]}. Correct would be {name}.'
+    assert df.select(columns[2]).collect()[0][0] == year, \
+        f'The attribute {columns[2]} is set to {df.select(columns[2]).collect()[0][0]}. Correct would be {year}.'
+    assert df.select(columns[3]).collect()[0][0] == rating, \
+        f'The attribute {columns[3]} is set to {df.select(columns[3]).collect()[0][0]}. Correct would be {rating}.'
+    assert df.select(columns[4]).collect()[0][0] == rank, \
+        f'The attribute {columns[4]} is set to {df.select(columns[4]).collect()[0][0]}. Correct would be {rank}.'
+
+    # Test read_data_from_hub(...) with actor "Morgan Freeman"
+    actor = df_actors \
+        .filter((df_actors.ID == 2) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+
+    id = actor.select("ID").collect()[0][0]
+    name = actor.select("NAME").collect()[0][0]
+    country = actor.select("COUNTRY").collect()[0][0]
+
+    columns = ["ID", "NAME", "COUNTRY"]
+    df = business_vault.read_data_from_hub(SOURCE_TABLE_NAME_ACTORS, columns, include_hkey=True)
+
+    df = df \
+        .filter(col(DV_CONV.hkey_column_name()) == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select(columns)
+    
+    assert df.select(columns[0]).collect()[0][0] == id, \
+        f'The attribute {columns[0]} is set to {df.select(columns[0]).collect()[0][0]}. Correct would be {id}.'
+    assert df.select(columns[1]).collect()[0][0] == name, \
+        f'The attribute {columns[1]} is set to {df.select(columns[1]).collect()[0][0]}. Correct would be {name}.'
+    assert df.select(columns[2]).collect()[0][0] == country, \
+        f'The attribute {columns[2]} is set to {df.select(columns[2]).collect()[0][0]}. Correct would be {country}.'
+
+    # Test read_data_from_hub(...) with director "Quentin Terintino"
+    director = df_directors \
+        .filter((df_directors.ID == 5) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+
+    id = director.select("ID").collect()[0][0]
+    name = director.select("NAME").collect()[0][0]
+    country = director.select("COUNTRY").collect()[0][0]
+
+    columns = ["ID", "NAME", "COUNTRY"]
+    df = business_vault.read_data_from_hub(SOURCE_TABLE_NAME_DIRECTORS, columns, include_hkey=True)
+
+    df = df \
+        .filter(col(DV_CONV.hkey_column_name()) == director.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select(columns)
+    
+    assert df.select(columns[0]).collect()[0][0] == id, \
+        f'The attribute {columns[0]} is set to {df.select(columns[0]).collect()[0][0]}. Correct would be {id}.'
+    assert df.select(columns[1]).collect()[0][0] == name, \
+        f'The attribute {columns[1]} is set to {df.select(columns[1]).collect()[0][0]}. Correct would be {name}.'
+    assert df.select(columns[2]).collect()[0][0] == country, \
+        f'The attribute {columns[2]} is set to {df.select(columns[2]).collect()[0][0]}. Correct would be {country}.'
+
