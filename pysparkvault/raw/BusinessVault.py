@@ -6,11 +6,13 @@ from typing import List, Optional, Union
 
 from .DataVaultShared import *
 
+
 class BusinessVaultConfiguration:
 
     def __init__(self, source_system_name: str) -> None:
         self.source_system_name = source_system_name
         self.raw_database_name = f'{self.source_system_name}__raw'.lower()
+
 
 class BusinessVault:
 
@@ -22,7 +24,12 @@ class BusinessVault:
     def create_active_code_reference_table(self, ref_table_name: str, ref_active_table_name, id_column: str) -> None:
         """
         Creates an extract of a reference table only containing the current, up-to-date value for the references.
+
+        :param ref_table_name - The name of the reference table.
+        :param ref_active_table_name - The name of the reference table to be created.
+        :param id_column - The name of the column that contains the reference ID.
         """
+
         df_ref = self.spark.table(f"`{self.config.raw_database_name}`.`{ref_table_name}`")
 
         df_ref_left = df_ref \
@@ -40,12 +47,23 @@ class BusinessVault:
 
     def initialize_database(self) -> None:
         """
-        Initialize database.
+        Initializes the database if not already exiting.
         """
 
         self.spark.sql(f"""CREATE DATABASE IF NOT EXISTS {self.config.raw_database_name} LOCATION '{self.config.raw_base_path}'""")
 
     def read_data_from_hub_sat_and_pit(self, hub_name: str, sat_name: str, pit_name: str, attributes: List[str], include_hkey: bool = False) -> DataFrame:
+        """
+        Retruns a DataFrame that contains hub data along with data from the corresponding satellite. 
+        Hub and satellite are joined based on the PIT table.
+
+        :param hub_name - The name of the hub table.
+        :param sat_name - The name of the satellite table.
+        :param pit_name - The  name of the PIT table.
+        :param attributes - The attributes that should be contained in the output DataFrame.
+        :param include_hkey - Defines whether the HKEY attribute is contained in the output DataFrame or not.
+        """
+
         df_pit = self.spark.table(f"`{self.config.raw_database_name}`.`{pit_name}`")
         df_sat = self.spark.table(f"`{self.config.raw_database_name}`.`{sat_name}`")
         df_hub = self.spark.table(f"`{self.config.raw_database_name}`.`{hub_name}`")
@@ -72,6 +90,14 @@ class BusinessVault:
                 F.max(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name()))
 
     def read_data_from_hub(self, name: str, attributes: List[str], include_hkey: bool = False) -> DataFrame:
+        """
+        Retruns a DataFrame that contains hub data along with data from the corresponding satellite.
+
+        :param name - The base name of the hub, satellite, and PIT table.
+        :param attributes - The attributes that should be contained in the output DataFrame.
+        :param include_hkey - Defines whether the HKEY attribute is contained in the output DataFrame or not.
+        """
+
         name = self.conventions.remove_prefix(name)
 
         hub_name = self.conventions.hub_name(name)
@@ -139,7 +165,7 @@ class BusinessVault:
         from_df = self.read_data_from_hub(from_name, from_attributes, True)
         to_df = self.read_data_from_hub(to_name, to_attributes, True)
 
-        return self.join_linked_dataframes(from_df, to_df, link_table_name, from_hkey_column_name, to_hkey_column_name, remove_hkeys)
+        return self.join_linked_dataframes(from_df, to_df, link_table_name, from_hkey_column_name, to_hkey_column_name, remove_hkeys=remove_hkeys)
 
     def join_linked_dataframes(
         self,
@@ -155,7 +181,8 @@ class BusinessVault:
         to_load_date_column: Optional[Column] = None, 
         to_load_end_date_column: Optional[Column] = None,
         load_date_column: Optional[str] = None, 
-        load_end_date_column: Optional[str] = None) -> DataFrame:
+        load_end_date_column: Optional[str] = None,
+        remove_hkeys: bool = False) -> DataFrame:
 
         if from_df_hkey is None:
             from_df_hkey = from_df[self.conventions.hkey_column_name()]
@@ -166,7 +193,7 @@ class BusinessVault:
         link_table_name = self.conventions.link_name(link_table_name)
         lnk_df = self.spark.table(f"`{self.config.raw_database_name}`.`{link_table_name}`")
 
-        return self \
+        return_df = self \
             .zip_historized_dataframes(
                 lnk_df \
                     .drop(lnk_df[self.conventions.load_date_column_name()]) \
@@ -184,3 +211,7 @@ class BusinessVault:
                 load_end_date_column=load_end_date_column) \
             .drop(lnk_from_hkey_column_name) \
             .drop(lnk_to_hkey_column_name)
+        if remove_hkeys:
+            print("HIIII")
+            return_df = return_df.drop(self.conventions.hkey_column_name())
+        return return_df
