@@ -111,6 +111,22 @@ class BusinessVault:
         left_load_date_column: Optional[Column] = None, left_load_end_date_column: Optional[Column] = None,
         right_load_date_column: Optional[Column] = None, right_load_end_date_column: Optional[Column] = None,
         load_date_column: Optional[str] = None, load_end_date_column: Optional[str] = None):
+        """
+        Joins two hub DataFrames with a link table and returns the joined DataFrame.
+        The valid LOAD_DATE and LOAD_END_DATE is filtered after joining.
+
+        :param left - The DataFrame of the linked origin hub.
+        :param right - The DataFrame of the linked target hub.
+        :param on - The join expression.
+        :param how - The join type. Must be one of the join types defined by pyspark.
+        :param left_load_date_column - The LOAD_DATE column of the origin hub.
+        :param left_load_end_date_column - The LOAD_END_DATE column of the origin hub.
+        :param right_load_date_column - The LOAD_DATE column of the target hub.
+        :param right_load_end_date_column - The LOAD_END_DATE column of the target hub.
+        :param load_date_column - The LOAD_DATE column of the joined DataFrame.
+        :param load_end_date_column - The LOAD_END_DATE column of the joined DataFrame.
+        :param include_hkey - Defines whether the HKEY attribute is contained in the output DataFrame or not.
+        """
 
         if left_load_date_column is None:
             left_load_date_column = left[self.conventions.load_date_column_name()]
@@ -133,6 +149,7 @@ class BusinessVault:
         result = left \
             .join(right, on, how=how)
 
+        # jb: why allowing NULL values?
         result = result \
             .filter(right_load_end_date_column.isNull() | left_load_date_column.isNull() | (right_load_end_date_column > left_load_date_column)) \
             .filter(left_load_end_date_column.isNull() | right_load_date_column.isNull() | (left_load_end_date_column > right_load_date_column)) \
@@ -160,12 +177,24 @@ class BusinessVault:
         to_hkey_column_name: str,
         from_attributes: List[str],
         to_attributes: List[str],
-        remove_hkeys: bool = False) -> DataFrame:
+        include_hkeys: bool = True) -> DataFrame:
+        """
+        Joins two hub tables with a link table and returns the joined DataFrame.
+
+        :param from_name - The name of the linked origin hub.
+        :param to_name - The name of the linked target hub.
+        :param link_table_name - The name of the link table.
+        :param from_hkey_column_name - The name of the column pointing to the origin of the link in the link table.
+        :param to_hkey_column_name - The name of the column pointing to the target of the link in the link table.
+        :param from_attributes - The attributes of the linked origin hub that should be contained in the output DataFrame.
+        :param to_attributes - The attributes of the linked target hub that should be contained in the output DataFrame.
+        :param include_hkeys - Defines whether the HKEY attribute is contained in the output DataFrame or not.
+        """
 
         from_df = self.read_data_from_hub(from_name, from_attributes, True)
         to_df = self.read_data_from_hub(to_name, to_attributes, True)
 
-        return self.join_linked_dataframes(from_df, to_df, link_table_name, from_hkey_column_name, to_hkey_column_name, remove_hkeys=remove_hkeys)
+        return self.join_linked_dataframes(from_df, to_df, link_table_name, from_hkey_column_name, to_hkey_column_name, include_hkeys=include_hkeys)
 
     def join_linked_dataframes(
         self,
@@ -182,7 +211,25 @@ class BusinessVault:
         to_load_end_date_column: Optional[Column] = None,
         load_date_column: Optional[str] = None, 
         load_end_date_column: Optional[str] = None,
-        remove_hkeys: bool = False) -> DataFrame:
+        include_hkeys: bool = False) -> DataFrame:
+        """
+        Joins two hub DataFrames with a link table and returns the joined DataFrame.
+
+        :param from_df - The DataFrame of the linked origin hub.
+        :param to_df - The DataFrame of the linked target hub.
+        :param link_table_name - The name of the link table.
+        :param lnk_from_hkey_column_name - The name of the column pointing to the origin of the link in the link table.
+        :param lnk_to_hkey_column_name - The name of the column pointing to the target of the link in the link table.
+        :param from_df_hkey - The HKEY column of the origin hub.
+        :param to_df_hkey - The HKEY column of the target hub.
+        :param from_load_date_column - The LOAD_DATE column of the origin hub.
+        :param from_load_end_date_column - The LOAD_END_DATE column of the origin hub.
+        :param to_load_date_column - The LOAD_DATE column of the target hub.
+        :param to_load_end_date_column - The LOAD_END_DATE column of the target hub.
+        :param load_date_column - The LOAD_DATE column of the joined DataFrame.
+        :param load_end_date_column - The LOAD_END_DATE column of the joined DataFrame.
+        :param include_hkeys - Defines whether the HKEY attribute is contained in the output DataFrame or not.
+        """
 
         if from_df_hkey is None:
             from_df_hkey = from_df[self.conventions.hkey_column_name()]
@@ -211,7 +258,6 @@ class BusinessVault:
                 load_end_date_column=load_end_date_column) \
             .drop(lnk_from_hkey_column_name) \
             .drop(lnk_to_hkey_column_name)
-        if remove_hkeys:
-            print("HIIII")
+        if not include_hkeys:
             return_df = return_df.drop(self.conventions.hkey_column_name())
         return return_df
