@@ -123,7 +123,7 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
             (DV_CONV.CDC_OPERATIONS.DELETE, T_5, 3, "The Dark Knight", 2008, 3, 9.0, 104),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 2, "The Godfather", 1972, 2, 9.1, 96),
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 2, "The Godfather", 1972, 3, 8.9, 103),
-            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.8, 125),
+            (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 6, "Schindler's List", 1993, None, 8.8, 125),
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.3, 210),
             (DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE, T_5, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
             (DV_CONV.CDC_OPERATIONS.UPDATE, T_5, 1, "The Shawshank Redemption", 1994, None, 9.5, 3)
@@ -236,7 +236,7 @@ def write_parquet_files(data: List[LoadedTables], staging_base_path: str) -> Non
         batch["castings"].write.mode('overwrite').parquet(f"{staging_base_path}/{STAGING_TABLE_NAME_CASTINGS}_{i}.parquet")
 
 
-def stage_tables(raw_vault: RawVault, staging_base_path: str) -> None:
+def stage_tables(spark: SparkSession, raw_vault: RawVault, staging_base_path: str) -> None:
     """
     Stages all source tables from the given path.
 
@@ -244,9 +244,12 @@ def stage_tables(raw_vault: RawVault, staging_base_path: str) -> None:
     :param staging_base_path - The path of the source tables.
     """
 
+    number_of_batches = 0
+
     for f in listdir(staging_base_path):
         # remove the file ending and extract the batch number
-        i = f.replace(".parquet", "").split("_")[-1]
+        i = int(f.replace(".parquet", "").split("_")[-1])
+        if i > number_of_batches : number_of_batches = i
         if SOURCE_TABLE_NAME_MOVIES in f:
             raw_vault.stage_table(f"{STAGING_TABLE_NAME_MOVIES}_{i}", f, HKEY_COLUMNS_MOVIES)
         elif SOURCE_TABLE_NAME_ACTORS in f:
@@ -255,6 +258,16 @@ def stage_tables(raw_vault: RawVault, staging_base_path: str) -> None:
             raw_vault.stage_table(f"{STAGING_TABLE_NAME_DIRECTORS}_{i}", f, HKEY_COLUMNS_DIRECTORS)
         elif SOURCE_TABLE_NAME_CASTINGS in f:
             raw_vault.stage_table(f"{STAGING_TABLE_NAME_CASTINGS}_{i}", f, HKEY_COLUMNS_CASTINGS)
+
+    for j in range(int(number_of_batches + 1)):
+        movies_df = spark.table(f"{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{j}")
+        actors_df = spark.table(f"{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{j}")
+        directors_df = spark.table(f"{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_{j}")
+        castings_df = spark.table(f"{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_CASTINGS}_{j}")
+        movies_df.write.mode('append').saveAsTable(f'{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_FULL')
+        actors_df.write.mode('append').saveAsTable(f'{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_FULL')
+        directors_df.write.mode('append').saveAsTable(f'{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_FULL')
+        castings_df.write.mode('append').saveAsTable(f'{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_CASTINGS}_FULL')
 
             
 def create_data_vault_tables(raw_vault: RawVault) -> None:
@@ -366,7 +379,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # load staging tables
     write_parquet_files(data, STAGING_BASE_PATH)
-    stage_tables(raw_vault, STAGING_BASE_PATH)
+    stage_tables(spark, raw_vault, STAGING_BASE_PATH)
     
     # create data vault tables
     create_data_vault_tables(raw_vault)
@@ -862,7 +875,7 @@ def test_pit_tables(spark: SparkSession):
     create_pit_tables(raw_vault)
     
     # tests
-    df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{0}')
+    df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_FULL')
     df_hub_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_pit = spark.table(f'{config.raw_database_name}.{DV_CONV.pit_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_sat_effectivity_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_MOVIES)}')
@@ -911,10 +924,11 @@ def test_business_vault(spark: SparkSession):
     business_vault = BusinessVault(spark, config, DV_CONV)
 
     # tests
-    df_movies = spark.table(f'{raw_vault_config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{2}')
-    df_actors = spark.table(f'{raw_vault_config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{0}')
-    df_directors = spark.table(f'{raw_vault_config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_{1}')
-
+    df_movies = spark.table(f'{raw_vault_config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_FULL')
+    df_actors = spark.table(f'{raw_vault_config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_FULL')
+    df_directors = spark.table(f'{raw_vault_config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_FULL')
+    df_castings = spark.table(f'{raw_vault_config.staging_prepared_database_name}.{STAGING_TABLE_NAME_CASTINGS}_FULL')
+  
     # Test read_data_from_hub(...) with movie "The Shawshank Redemption", 1994
     movie = df_movies \
         .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
@@ -993,3 +1007,125 @@ def test_business_vault(spark: SparkSession):
     assert df.select(columns[2]).collect()[0][0] == country, \
         f'The attribute {columns[2]} is set to {df.select(columns[2]).collect()[0][0]}. Correct would be {country}.'
 
+    # Test join_linked_hubs(...) with link between movie "The Shawshank Redemption", 1994 and actor "Tim Robbins"
+    casting = df_castings \
+        .filter((col("MOVIE_ID") == 1) & (col("ACTOR_ID") == 1)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    movie = df_movies \
+        .filter((df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    actor = df_actors \
+        .filter((df_actors.ID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+
+    movie_columns = ["ID", "NAME", "YEAR", "RATING", "RANK"]
+    actor_columns = ["ID", "NAME", "COUNTRY"]
+    
+    df = business_vault.join_linked_hubs(SOURCE_TABLE_NAME_MOVIES, SOURCE_TABLE_NAME_ACTORS, SOURCE_TABLE_NAME_CASTINGS, 
+        "HKEY_MOVIES", "HKEY_ACTORS", movie_columns, actor_columns, include_hkeys=True)
+
+    column_prefix_movies_hub = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES)}"
+    column_prefix_actors_hub = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS)}"
+    column_prefix_movies_sat = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}"
+    column_prefix_actors_sat = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}"
+
+    df = df \
+        .filter(col(f"{column_prefix_movies_hub}.{DV_CONV.hkey_column_name()}") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .filter(col(f"{column_prefix_actors_hub}.{DV_CONV.hkey_column_name()}") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+
+    movie_columns = [
+        f"{column_prefix_movies_sat}.{movie_columns[0]}", f"{column_prefix_movies_hub}.{movie_columns[1]}",
+        f"{column_prefix_movies_hub}.{movie_columns[2]}", f"{column_prefix_movies_sat}.{movie_columns[3]}",
+        f"{column_prefix_movies_sat}.{movie_columns[4]}"
+    ]
+    actor_columns = [
+        f"{column_prefix_actors_sat}.{actor_columns[0]}", f"{column_prefix_actors_hub}.{actor_columns[1]}",
+        f"{column_prefix_actors_sat}.{actor_columns[2]}"
+    ]
+
+    movie_id = movie.select("ID").collect()[0][0]
+    movie_name = movie.select("NAME").collect()[0][0]
+    year = movie.select("YEAR").collect()[0][0]
+    rating = movie.select("RATING").collect()[0][0]
+    rank = movie.select("RANK").collect()[0][0]
+    actor_id = actor.select("ID").collect()[0][0]
+    actor_name = actor.select("NAME").collect()[0][0]
+    country = actor.select("COUNTRY").collect()[0][0]
+
+    assert df.select(movie_columns[0]).collect()[0][0] == movie_id, \
+        f'The attribute {movie_columns[0]} is set to {df.select(movie_columns[0]).collect()[0][0]}. Correct would be {movie_id}.'
+    assert df.select(movie_columns[1]).collect()[0][0] == movie_name, \
+        f'The attribute {movie_columns[1]} is set to {df.select(movie_columns[1]).collect()[0][0]}. Correct would be {movie_name}.'
+    assert df.select(movie_columns[2]).collect()[0][0] == year, \
+        f'The attribute {movie_columns[2]} is set to {df.select(movie_columns[2]).collect()[0][0]}. Correct would be {year}.'
+    assert df.select(movie_columns[3]).collect()[0][0] == rating, \
+        f'The attribute {movie_columns[3]} is set to {df.select(movie_columns[3]).collect()[0][0]}. Correct would be {rating}.'
+    assert df.select(movie_columns[4]).collect()[0][0] == rank, \
+        f'The attribute {movie_columns[4]} is set to {df.select(movie_columns[4]).collect()[0][0]}. Correct would be {rank}.'
+    assert df.select(actor_columns[0]).collect()[0][0] == actor_id, \
+        f'The attribute {actor_columns[0]} is set to {df.select(actor_columns[0]).collect()[0][0]}. Correct would be {actor_id}.'
+    assert df.select(actor_columns[1]).collect()[0][0] == actor_name, \
+        f'The attribute {actor_columns[1]} is set to {df.select(actor_columns[1]).collect()[0][0]}. Correct would be {actor_name}.'
+    assert df.select(actor_columns[2]).collect()[0][0] == country, \
+        f'The attribute {actor_columns[2]} is set to {df.select(actor_columns[2]).collect()[0][0]}. Correct would be {country}.'
+
+    # Test join_linked_hubs(...) with link between movie "Schindler's List", 1993 and director "Steven Spielberg"
+    movie = df_movies \
+        .filter((df_movies.ID == 6) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+    director = df_directors \
+        .filter((df_directors.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+
+    movie_columns = ["ID", "NAME", "YEAR", "RATING", "RANK"]
+    director_columns = ["ID", "NAME", "COUNTRY"]
+    
+    df = business_vault.join_linked_hubs(SOURCE_TABLE_NAME_MOVIES, SOURCE_TABLE_NAME_DIRECTORS, LINK_TABLE_NAME_MOVIES_DIRECTORS, 
+        "HKEY_MOVIES", "HKEY_DIRECTORS", movie_columns, director_columns, include_hkeys=True)
+
+    column_prefix_movies_hub = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES)}"
+    column_prefix_directors_hub = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}"
+    column_prefix_movies_sat = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}"
+    column_prefix_directors_sat = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_DIRECTORS)}"
+
+    df = df \
+        .filter(col(f"{column_prefix_movies_hub}.{DV_CONV.hkey_column_name()}") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .filter(col(f"{column_prefix_directors_hub}.{DV_CONV.hkey_column_name()}") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+
+    movie_columns = [
+        f"{column_prefix_movies_sat}.{movie_columns[0]}", f"{column_prefix_movies_hub}.{movie_columns[1]}",
+        f"{column_prefix_movies_hub}.{movie_columns[2]}", f"{column_prefix_movies_sat}.{movie_columns[3]}",
+        f"{column_prefix_movies_sat}.{movie_columns[4]}"
+    ]
+    director_columns = [
+        f"{column_prefix_directors_sat}.{director_columns[0]}", f"{column_prefix_directors_hub}.{director_columns[1]}",
+        f"{column_prefix_directors_sat}.{director_columns[2]}"
+    ]
+
+    movie_id = movie.select("ID").collect()[0][0]
+    movie_name = movie.select("NAME").collect()[0][0]
+    year = movie.select("YEAR").collect()[0][0]
+    rating = movie.select("RATING").collect()[0][0]
+    rank = movie.select("RANK").collect()[0][0]
+    director_id = director.select("ID").collect()[0][0]
+    director_name = director.select("NAME").collect()[0][0]
+    country = director.select("COUNTRY").collect()[0][0]
+
+    assert df.select(movie_columns[0]).collect()[0][0] == movie_id, \
+        f'The attribute {movie_columns[0]} is set to {df.select(movie_columns[0]).collect()[0][0]}. Correct would be {movie_id}.'
+    assert df.select(movie_columns[1]).collect()[0][0] == movie_name, \
+        f'The attribute {movie_columns[1]} is set to {df.select(movie_columns[1]).collect()[0][0]}. Correct would be {movie_name}.'
+    assert df.select(movie_columns[2]).collect()[0][0] == year, \
+        f'The attribute {movie_columns[2]} is set to {df.select(movie_columns[2]).collect()[0][0]}. Correct would be {year}.'
+    assert df.select(movie_columns[3]).collect()[0][0] == rating, \
+        f'The attribute {movie_columns[3]} is set to {df.select(movie_columns[3]).collect()[0][0]}. Correct would be {rating}.'
+    assert df.select(movie_columns[4]).collect()[0][0] == rank, \
+        f'The attribute {movie_columns[4]} is set to {df.select(movie_columns[4]).collect()[0][0]}. Correct would be {rank}.'
+    assert df.select(director_columns[0]).collect()[0][0] == director_id, \
+        f'The attribute {director_columns[0]} is set to {df.select(director_columns[0]).collect()[0][0]}. Correct would be {director_id}.'
+    assert df.select(director_columns[1]).collect()[0][0] == director_name, \
+        f'The attribute {director_columns[1]} is set to {df.select(director_columns[1]).collect()[0][0]}. Correct would be {director_name}.'
+    assert df.select(director_columns[2]).collect()[0][0] == country, \
+        f'The attribute {director_columns[2]} is set to {df.select(director_columns[2]).collect()[0][0]}. Correct would be {country}.'
