@@ -1,10 +1,12 @@
+from traceback import print_tb
+from typing import Optional, Dict
+
 from pyspark.sql import DataFrame
 from pyspark.sql.session import SparkSession
 
-from typing import Optional, Dict
-
 from .BusinessVault import *
 from .DataVaultShared import *
+
 
 class FieldDefinition:
 
@@ -62,6 +64,12 @@ class Curated:
         self.typelists = typelists
 
     def filter_retired(self, df: DataFrame) -> DataFrame:
+        """
+        Filters rows from given DataFrame based on the retired column.
+
+        :param df - The DataFrame to be filtered.
+        """
+
         #
         # TODO mw: Should we check for dangling pointers/ related tables? Then this is much more complex!
         # e.g. in that case we could filter retired also while replacing with PublicID ...
@@ -82,8 +90,14 @@ class Curated:
             return df
 
 
-    def get_entity_name_from_source_table_name(self, s: str) -> str:
-        return s \
+    def get_entity_name_from_source_table_name(self, source_table_name: str) -> str:
+        """
+        Returns the name of an entity based on the source table name.
+
+        :param source_table_name - The name of the source table.
+        """
+
+        return source_table_name \
             .replace('cc_', '') \
             .replace('cctl_', '') \
             .replace('ccx_', '') \
@@ -92,10 +106,21 @@ class Curated:
 
     
     def initialize_database(self) -> None:
-        spark.sql(f"""CREATE DATABASE IF NOT EXISTS {self.config.curated_database_name} LOCATION '{self.config.base_path}'""")
+        """
+        Initializes the database if not already exiting.
+        """
+
+        self.spark.sql(f"""CREATE DATABASE IF NOT EXISTS {self.config.curated_database_name} LOCATION '{self.config.base_path}'""")
 
 
     def join_user_information(self, df: DataFrame, column: Optional[str] = None) -> DataFrame:
+        """
+        Joins a given DataFrame with user tables.
+
+        :param df - The DataFrame to be joined with user tables.
+        :param column - The UserID column.
+        """
+
         if column is None:
             user_id_columns = list(filter(lambda c: c.endswith('UserID'), df.columns))
 
@@ -136,6 +161,14 @@ class Curated:
                 .select(columns)
 
     def join_typelist(self, df: DataFrame, typelist_reference_column: str, typelist_name: str):
+        """
+        Joins a given DataFrame with a typelist.
+
+        :param df - The DataFrame to be joined with the typelist.
+        :param typelist_reference_column - The column in the DataFrame that references the typelist.
+        :param typelist_name - The name of the typelist.
+        """
+
         en_column = f'{typelist_reference_column}_en'
         de_column = f'{typelist_reference_column}_de'
 
@@ -159,37 +192,33 @@ class Curated:
 
     def map_to_curated(self, fields: List[FieldDefinition]) -> DataFrame:
         """
-        
+        Maps defined FieldDefinitions to a curated data view.
+
+        :param fields - The list of FieldDefinitions to be mapped.
         """
+
         root_table_name = fields[0].from_table
         source_table_names = { f.from_table: self.get_entity_name_from_source_table_name(f.from_table) for f in fields }
         source_dataframes: Dict[str, DataFrame] = {}
-
 
         for source_table in source_table_names.keys():
             attributes = list([ field.from_field_name for field in fields if field.from_table is source_table ])
             source_dataframes[source_table] = self.business_vault.read_data_from_hub(source_table_names[source_table], attributes, True)
 
-        source_dataframes[root_table_name] = source_dataframes[root_table_name] #\
-            #.filter(source_dataframes[root_table_name]['$__HKEY'] == '1bd90a4afba705dcaca2df03a7b1b717')
-
-        #
-        # Rename Columns
-        #
+        # rename Columns
         for field in fields:
             if field.to_field_name is not field.from_field_name:
                 source_dataframes[field.from_table] = source_dataframes[field.from_table] \
                     .withColumnRenamed(field.from_field_name, field.to_field_name)
 
-        #
-        # Resolve Public IDs
-        #
+        # resolve Public IDs
         for field in fields:
             if field.foreign_key:
                 linked_entity = self.get_entity_name_from_source_table_name(field.foreign_key_to_table_name)
                 linked_hub = self.conventions.hub_name(linked_entity)
                 linked_hub = self.business_vault.read_data_from_hub(source_table_names[source_table], ['PublicID'], True)
 
+                # jb: who defines this naming convention?
                 lnk_name = f'LNK__{source_table_names[field.from_table]}__{linked_entity}'
                 lnk_from_hkey = f"{source_table_names[field.from_table]}_HKEY"
                 lnk_to_hkey = f"{linked_entity}_HKEY"
@@ -200,9 +229,7 @@ class Curated:
                     source_dataframes[field.from_table][self.conventions.hkey_column_name()],
                     linked_hub[self.conventions.hkey_column_name()])
 
-        #
-        # Join all from different source tables.
-        #
+        # join all from different source tables.
         result: DataFrame = source_dataframes[root_table_name]
 
         for source_table in source_table_names.keys():
@@ -224,22 +251,17 @@ class Curated:
                         load_end_date_column=self.conventions.load_end_date_column_name()) \
                     .drop(source_dataframes[source_table][self.conventions.hkey_column_name()])
 
-        #
-        # Select all columns
-        #
-        columns = list([source_dataframes[f.from_table][f.to_field_name] for f in fields])
-        result = result.select(*columns)
+        # select all columns
+        # jb: this is not working for duplicate column names
+        # columns = list([source_dataframes[f.from_table][f.to_field_name] for f in fields])
+        # result = result.select(*columns)
 
-        #
-        # Resolve Typelists
-        #
+        # resolve Typelists
         for field in fields:
             if field.is_typelist:
                 result = self.join_typelist(result, field.to_field_name, field.typelist_table_name)
 
-        #
-        # Replace UserID columns
-        #
+        # replace UserID columns
         result = self.join_user_information(result)
 
         return result
@@ -257,10 +279,14 @@ class Curated:
         """
         Replaces a technical ID with the entities Public ID.
 
-        :param df - The data frame containing the data which should be updated.
-        :param column_name - The column within df which holds the ID to the other entity.
+        :param from_df - The DataFrame containing the data which should be updated.
+        :param column_name - The column within the DataFrame that holds the ID to the other entity.
+        :param to_df - The DataFrame of the linked entity.
         :param lnk_table_name - The name of the link table which contains the relations between the two entities.
-        :param 
+        :param lnk_from_hkey_column_name - The name of the origin HKEY column in the link table.
+        :param lnk_to_hkey_column_name - The name of the target HKEY column in the link table.
+        :param from_df_hkey - The HKEY column of the origin DataFrame.
+        :param to_df_hkey - The HKEY column of the target DataFrame.
         """
 
         if from_df_hkey is None:
@@ -271,6 +297,7 @@ class Curated:
 
         df_lnk = self.spark.table(f'{self.config.raw_database_name}.{lnk_table_name}')
 
+        # jb: make 'PublicID' configurable?
         df_lnk = df_lnk \
             .join(to_df, df_lnk[lnk_to_hkey_column_name] == to_df_hkey, how='left') \
             .withColumnRenamed('PublicID', column_name) \
