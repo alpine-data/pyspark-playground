@@ -58,15 +58,16 @@ class CDCOperations:
 class DataVaultConventions:
 
     def __init__(
-        self,  column_prefix = '$__', hub = 'HUB__', link = 'LNK__', sat = 'SAT__', pit = 'PIT__', effectivity = 'EFFECTIVTY_',
+        self,  column_prefix = '$__', hub = 'HUB__', link = 'LNK__', ref = 'REF__', sat = 'SAT__', pit = 'PIT__', effectivity = 'EFFECTIVTY_',
         hkey = 'HKEY', hdiff = 'HDIFF', load_date = 'LOAD_DATE', load_end_date = 'LOAD_END_DATE', cdc_load_date = 'CDC_LOAD_DATE',
         max_cdc_load_date = 'MAX_CDC_LOAD_DATE', record_source = 'RECORD_SOURCE', cdc_operation = 'OPERATION', deleted = 'DELETED', 
-        cdc_operations = CDCOperations()) -> None:
+        ref_group = 'GROUP', cdc_operations = CDCOperations()) -> None:
         
         self.COLUMN_PREFIX = column_prefix
         self.HUB = hub
         self.LINK = link
         self.SAT = sat
+        self.REF = ref
         self.PIT = pit
         self.EFFECTIVTY = effectivity
         self.HKEY = hkey
@@ -78,6 +79,7 @@ class DataVaultConventions:
         self.RECORD_SOURCE = record_source
         self.CDC_OPERATION = cdc_operation
         self.DELETED = deleted
+        self.REF_GROUP = ref_group
         self.CDC_OPERATIONS = cdc_operations
 
     def deleted_column_name(self) -> str:
@@ -159,25 +161,18 @@ class DataVaultConventions:
 
         return f'{self.COLUMN_PREFIX}{self.MAX_CDC_LOAD_DATE}'
 
-    def pit_name(self, name: str) -> str:
-        """
-        Returns a name of a PIT (point-in-time-table) table, based on the base name. This method ensures, that the name is prefixed with the configured
-        hub prefix. If the prefix is already present, it will not be added.
-        """
-
-        name = name.upper()
-
-        if name.startswith(self.PIT):
-            return name
-        else:
-            return f'{self.PIT}{name}'
-
     def record_source_column_name(self) -> str:
         """
         Return the column name for RECORD_SOURCE column including configured prefix.
         """
 
         return f'{self.COLUMN_PREFIX}{self.RECORD_SOURCE}'
+
+    def ref_group_column_name(self) -> str:
+        """
+        Returns the column name for group column of shared reference tables.
+        """
+        return f'{self.COLUMN_PREFIX}{self.REF_GROUP}'
 
     def remove_prefix(self, name: str) -> str:
         """
@@ -215,6 +210,32 @@ class DataVaultConventions:
             return name
         else:
             return f'{self.SAT}{self.EFFECTIVTY}{name}'
+
+    def pit_name(self, name: str) -> str:
+        """
+        Returns a name of a PIT (point-in-time-table) table, based on the base name. This method ensures, that the name is prefixed with the configured
+        hub prefix. If the prefix is already present, it will not be added.
+        """
+
+        name = name.upper()
+
+        if name.startswith(self.PIT):
+            return name
+        else:
+            return f'{self.PIT}{name}'
+
+    def ref_name(self, name: str) -> str:
+        """
+        Returns a name of a REF (reference) table, base on the base name.  This method ensures, that the name is prefixed with the configured
+        reference prefix. If the prefix is already present, it will not be added.
+        """
+
+        name = name.upper()
+
+        if name.startswith(self.REF):
+            return name
+        else:
+            return f'{self.REF}{name}'
 
 
 class RawVaultConfiguration:
