@@ -8,8 +8,10 @@ from pyspark.sql.dataframe import DataFrame
 from pyspark.sql.functions import col
 from pyspark.sql.session import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, IntegerType, DoubleType
+
 from pysparkvault.raw.RawVault import ColumnDefinition, ColumnReference, RawVaultConfiguration, DataVaultConventions, ForeignKey, LinkedHubDefinition, RawVault, SatelliteDefinition
 from pysparkvault.raw.BusinessVault import BusinessVault, BusinessVaultConfiguration
+from pysparkvault.raw.Curated import Curated, CuratedConfiguration, FieldDefinition, TypelistsConfiguration
 
 
 # global variables
@@ -23,7 +25,10 @@ STAGING_TABLE_NAME_ACTORS = f"STG__{SOURCE_TABLE_NAME_ACTORS}"
 STAGING_TABLE_NAME_DIRECTORS = f"STG__{SOURCE_TABLE_NAME_DIRECTORS}"
 STAGING_TABLE_NAME_CASTINGS = f"STG__{SOURCE_TABLE_NAME_CASTINGS}"
 
-LINK_TABLE_NAME_MOVIES_DIRECTORS = f"{SOURCE_TABLE_NAME_MOVIES}_{SOURCE_TABLE_NAME_DIRECTORS}"
+TYPELISTS_TABLE_NAME = 'TYPELIST'
+TYPELISTS_ACTIVE_TABLE_NAME = 'TYPELIST__ACTIVE'
+
+LINK_TABLE_NAME_MOVIES_DIRECTORS = f"{SOURCE_TABLE_NAME_MOVIES}__{SOURCE_TABLE_NAME_DIRECTORS}"
 
 HKEY_COLUMNS_MOVIES = ["NAME", "YEAR"]
 HKEY_COLUMNS_ACTORS = ["NAME"]
@@ -62,7 +67,7 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
     schema_movies = StructType([
         StructField(DV_CONV.CDC_OPERATION, StringType(), False),
         StructField(DV_CONV.LOAD_DATE, TimestampType(), False),
-        StructField("ID", StringType(), False),
+        StructField("PublicID", StringType(), False),
         StructField("NAME", StringType(), False),
         StructField("YEAR", IntegerType(), False),
         StructField("DIRECTOR_ID", IntegerType(), True),
@@ -73,7 +78,7 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
     schema_actors = StructType([
         StructField(DV_CONV.CDC_OPERATION, StringType(), False),
         StructField(DV_CONV.LOAD_DATE, TimestampType(), False),
-        StructField("ID", StringType(), False),
+        StructField("PublicID", StringType(), False),
         StructField("NAME", StringType(), False),
         StructField("COUNTRY", StringType(), False)
     ])
@@ -81,7 +86,7 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
     schema_directors = StructType([
         StructField(DV_CONV.CDC_OPERATION, StringType(), False),
         StructField(DV_CONV.LOAD_DATE, TimestampType(), False),
-        StructField("ID", StringType(), False),
+        StructField("PublicID", StringType(), False),
         StructField("NAME", StringType(), False),
         StructField("COUNTRY", StringType(), False)
     ])
@@ -292,30 +297,30 @@ def create_data_vault_tables(raw_vault: RawVault) -> None:
     ])
 
     # create links
-    raw_vault.create_link(SOURCE_TABLE_NAME_CASTINGS, ["HKEY_MOVIES", "HKEY_ACTORS"])
+    raw_vault.create_link(SOURCE_TABLE_NAME_CASTINGS, ["MOVIES_HKEY", "ACTORS_HKEY"])
 
     # create links
-    raw_vault.create_link(LINK_TABLE_NAME_MOVIES_DIRECTORS, ["HKEY_MOVIES", "HKEY_DIRECTORS"])
+    raw_vault.create_link(LINK_TABLE_NAME_MOVIES_DIRECTORS, ["MOVIES_HKEY", "DIRECTORS_HKEY"])
 
     # create satellites
     raw_vault.create_satellite(SOURCE_TABLE_NAME_MOVIES, [
-        ColumnDefinition("ID", StringType()),
+        ColumnDefinition("PublicID", StringType()),
         ColumnDefinition("RATING", DoubleType()),
         ColumnDefinition("RANK", IntegerType())
     ])
 
     raw_vault.create_satellite(SOURCE_TABLE_NAME_ACTORS, [
-        ColumnDefinition("ID", StringType()),
+        ColumnDefinition("PublicID", StringType()),
         ColumnDefinition("COUNTRY", StringType())
     ])
 
     raw_vault.create_satellite(SOURCE_TABLE_NAME_DIRECTORS, [
-        ColumnDefinition("ID", StringType()),
+        ColumnDefinition("PublicID", StringType()),
         ColumnDefinition("COUNTRY", StringType())
     ])
 
 
-def load_from_prepared_staging_table(raw_vault: RawVault, batch: int):
+def load_from_prepared_staging_table(raw_vault: RawVault, batch: int) -> None:
     """
     Loads cdc data into hubs, links, and satellites.
 
@@ -326,26 +331,26 @@ def load_from_prepared_staging_table(raw_vault: RawVault, batch: int):
     # load hubs and satellites
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_MOVIES}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES), HKEY_COLUMNS_MOVIES, 
-        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES), ['ID', 'RATING', 'RANK'])])
+        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES), ['PublicID', 'RATING', 'RANK'])])
 
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_ACTORS}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS), HKEY_COLUMNS_ACTORS, 
-        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS), ['ID', 'COUNTRY'])])
+        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS), ['PublicID', 'COUNTRY'])])
 
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_DIRECTORS}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS), HKEY_COLUMNS_DIRECTORS, 
-        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_DIRECTORS), ['ID', 'COUNTRY'])])
+        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_DIRECTORS), ['PublicID', 'COUNTRY'])])
 
     # load links
     raw_vault.load_link_from_prepared_stage_table(
         f"{STAGING_TABLE_NAME_CASTINGS}_{batch}", 
         [
-            LinkedHubDefinition(SOURCE_TABLE_NAME_MOVIES, "HKEY_MOVIES", ForeignKey("MOVIE_ID", ColumnReference(f"{STAGING_TABLE_NAME_MOVIES}_{batch}", "ID"))),
-            LinkedHubDefinition(SOURCE_TABLE_NAME_ACTORS, "HKEY_ACTORS", ForeignKey("ACTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_ACTORS}_{batch}", "ID")))
+            LinkedHubDefinition(SOURCE_TABLE_NAME_MOVIES, "MOVIES_HKEY", ForeignKey("MOVIE_ID", ColumnReference(f"{STAGING_TABLE_NAME_MOVIES}_{batch}", "PublicID"))),
+            LinkedHubDefinition(SOURCE_TABLE_NAME_ACTORS, "ACTORS_HKEY", ForeignKey("ACTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_ACTORS}_{batch}", "PublicID")))
         ], DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS), None)
     
     raw_vault.load_link_for_linked_source_tables_from_prepared_staging_tables(f"{STAGING_TABLE_NAME_MOVIES}_{batch}", SOURCE_TABLE_NAME_DIRECTORS,
-        ForeignKey("DIRECTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_DIRECTORS}_{batch}", "ID")), LINK_TABLE_NAME_MOVIES_DIRECTORS, "HKEY_MOVIES", "HKEY_DIRECTORS")
+        ForeignKey("DIRECTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_DIRECTORS}_{batch}", "PublicID")), LINK_TABLE_NAME_MOVIES_DIRECTORS, "MOVIES_HKEY", "DIRECTORS_HKEY")
 
 
 def create_pit_tables(raw_vault: RawVault) -> None:
@@ -358,6 +363,37 @@ def create_pit_tables(raw_vault: RawVault) -> None:
     raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_MOVIES, SOURCE_TABLE_NAME_MOVIES)
     raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_ACTORS, SOURCE_TABLE_NAME_ACTORS)
     raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_DIRECTORS, SOURCE_TABLE_NAME_DIRECTORS)
+
+
+def create_reference_tables(spark: SparkSession, business_vault: RawVault) -> None: 
+    schema_typelist = StructType([
+        StructField(DV_CONV.load_date_column_name(), TimestampType(), False),
+        StructField(DV_CONV.ref_group_column_name(), StringType(), False),
+        StructField("PublicID", StringType(), False),
+        StructField("DESCRIPTION", StringType(), False)
+    ])
+
+    data = [
+        (T_0, "test_group_1", "1", "A"),
+        (T_0, "test_group_1", "2", "B"),
+        (T_0, "test_group_1", "3", "C"),
+        (T_0, "test_group_1", "4", "D"),
+        (T_0, "test_group_1", "5", "E"),
+        (T_0, "test_group_1", "6", "F"),
+        (T_0, "test_group_1", "7", "G"),
+        (T_0, "test_group_1", "8", "H"),
+        (T_0, "test_group_2", "1", "A"),
+        (T_0, "test_group_2", "2", "B"),
+        (T_0, "test_group_2", "3", "C"),
+        (T_0, "test_group_2", "4", "D"),
+        (T_0, "test_group_2", "5", "E"),
+        (T_0, "test_group_2", "6", "F"),
+        (T_0, "test_group_2", "7", "G"),
+        (T_0, "test_group_2", "8", "H"),
+    ]
+
+    df = spark.createDataFrame(data, schema_typelist)
+    df.write.mode('overwrite').saveAsTable(f'{business_vault.config.raw_database_name}.{DV_CONV.ref_name(TYPELISTS_TABLE_NAME)}')
 
 
 def test_datavault_transformatios(spark: SparkSession):
@@ -410,7 +446,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Hub for movie "The Shawshank Redemption", 1994 -> exists
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_hub_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -419,7 +455,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Hub for movie "The Shawshank Redemption", 1994 -> not deleted
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert not df_sat_effectivity_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -430,7 +466,7 @@ def test_datavault_transformatios(spark: SparkSession):
     
     # Hub for actor "Tim Robbins" -> exists
     actor = df_actors \
-        .filter((df_actors.ID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_actors.PublicID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_hub_actors \
         .filter(col(DV_CONV.hkey_column_name()) == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -439,7 +475,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Hub for actor "Tim Robbins" -> not deleted
     actor = df_actors \
-        .filter((df_actors.ID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_actors.PublicID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert not df_sat_effectivity_actors \
         .filter(col(DV_CONV.hkey_column_name()) == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -450,7 +486,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Hub for director "Frank Darabont" -> exists
     director = df_directors \
-        .filter((df_directors.ID == 1) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors.PublicID == 1) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_hub_directors \
         .filter(col(DV_CONV.hkey_column_name()) == director.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -459,7 +495,7 @@ def test_datavault_transformatios(spark: SparkSession):
     
     # Hub for director "Frank Darabont" -> not deleted
     director = df_directors \
-        .filter((df_directors.ID == 1) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors.PublicID == 1) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert not df_sat_effectivity_directors \
         .filter(col(DV_CONV.hkey_column_name()) == director.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -473,15 +509,15 @@ def test_datavault_transformatios(spark: SparkSession):
         .filter((col("MOVIE_ID") == 1) & (col("ACTOR_ID") == 1)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     movie = df_movies \
-        .filter((df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     actor = df_actors \
-        .filter((df_actors.ID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_actors.PublicID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_link_castings \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_ACTORS") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("ACTORS_HKEY") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
         .count() == 1, \
         f'{actor.select("NAME").collect()[0][0]} was not casted in {movie.select("NAME").collect()[0][0]} or the link exists multiple times.'
 
@@ -490,15 +526,15 @@ def test_datavault_transformatios(spark: SparkSession):
         .filter((col("MOVIE_ID") == 1) & (col("ACTOR_ID") == 1)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     movie = df_movies \
-        .filter((df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     actor = df_actors \
-        .filter((df_actors.ID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_actors.PublicID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     link_casting = df_link_castings \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_ACTORS") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("ACTORS_HKEY") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]))
     assert not df_sat_effectivity_casting \
         .filter(col(DV_CONV.hkey_column_name()) == link_casting.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
@@ -508,29 +544,29 @@ def test_datavault_transformatios(spark: SparkSession):
     
     # Link between movie "The Shawshank Redemption", 1994 and director "Frank Darabont" -> exists
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     director = df_directors \
-        .filter((df_directors.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors.PublicID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_link_movies_directors \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("DIRECTORS_HKEY") == director.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
         .count() == 1, \
         f'{director.select("NAME").collect()[0][0]} did not direct movie {movie.select("NAME").collect()[0][0]} or the link exists multiple times.'
 
     # Link between movie "The Shawshank Redemption", 1994 and director "Frank Darabont" -> not deleted
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     director = df_directors \
-        .filter((df_directors.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors.PublicID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     link_movies_directors = df_link_movies_directors \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("DIRECTORS_HKEY") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
     assert not df_sat_effectivity_movies_directors \
         .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
@@ -540,7 +576,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rating of movie "The Shawshank Redemption", 1994, is 9,1
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rating = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -552,7 +588,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rank of movie "The Shawshank Redemption", 1994, is 64
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rank = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -564,7 +600,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Country of actor "Tim Robbins" is "USA"
     actor = df_actors \
-        .filter((df_actors.ID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_actors.PublicID == 1) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     country = df_sat_actors \
         .filter(col(DV_CONV.hkey_column_name()) == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -605,7 +641,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Hub for movie "The Dark Knight", 2008 -> exists
     movie = df_movies \
-        .filter((df_movies.ID == 3) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 3) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_hub_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -614,7 +650,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Hub for movie "The Dark Knight", 2008 -> not deleted
     movie = df_movies \
-        .filter((df_movies.ID == 3) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 3) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert not df_sat_effectivity_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -625,7 +661,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Hub for movie "Star Wars: Episode V", 1980 -> exists
     movie = df_movies \
-        .filter((df_movies.ID == 4) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 4) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_hub_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -634,7 +670,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Hub for movie "Star Wars: Episode V", 1980 -> deleted
     movie = df_movies \
-        .filter((df_movies.ID == 4) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 4) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_sat_effectivity_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -648,15 +684,15 @@ def test_datavault_transformatios(spark: SparkSession):
         .filter((col("MOVIE_ID") == 1) & (col("ACTOR_ID") == 1)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     movie = df_movies \
-        .filter((df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     actor = df_actors_0 \
-        .filter((df_actors_0.ID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_actors_0.PublicID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     link_casting = df_link_castings \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_ACTORS") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("ACTORS_HKEY") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]))
     assert not df_sat_effectivity_casting \
         .filter(col(DV_CONV.hkey_column_name()) == link_casting.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
@@ -669,15 +705,15 @@ def test_datavault_transformatios(spark: SparkSession):
         .filter((col("MOVIE_ID") == 1) & (col("ACTOR_ID") == 2)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     movie = df_movies \
-        .filter((df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     actor = df_actors_0 \
-        .filter((df_actors_0.ID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_actors_0.PublicID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     link_casting = df_link_castings \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_ACTORS") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("ACTORS_HKEY") == actor.select(DV_CONV.hkey_column_name()).collect()[0][0]))
     assert df_sat_effectivity_casting \
         .filter(col(DV_CONV.hkey_column_name()) == link_casting.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
@@ -687,15 +723,15 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Link between movie "The Shawshank Redemption", 1994 and director "Frank Darabont" -> not deleted
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     director = df_directors_0 \
-        .filter((df_directors_0.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors_0.PublicID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     link_movies_directors = df_link_movies_directors \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("DIRECTORS_HKEY") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
     assert not df_sat_effectivity_movies_directors \
         .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
@@ -705,15 +741,15 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Link between movie "Schindler's List", 1993 and director "Steven Spielberg" -> deleted
     movie = df_movies \
-        .filter((df_movies.ID == 6) & (df_movies[DV_CONV.cdc_operation_column_name()] == DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 6) & (df_movies[DV_CONV.cdc_operation_column_name()] == DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     director = df_directors \
-        .filter((df_directors.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors.PublicID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     link_movies_directors = df_link_movies_directors \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("DIRECTORS_HKEY") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
     assert df_sat_effectivity_movies_directors \
         .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
@@ -723,7 +759,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rating of movie "The Shawshank Redemption", 1994, is 9,6
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rating = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -735,7 +771,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rank of movie "The Shawshank Redemption", 1994, is 2
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rank = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -771,29 +807,29 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Link between movie "The Godfather", 1972 and director "Francis Ford Coppola" -> exists
     movie = df_movies \
-        .filter((df_movies.ID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] == DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] == DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     director = df_directors_0 \
-        .filter((df_directors_0.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors_0.PublicID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_link_movies_directors \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("DIRECTORS_HKEY") == director.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
         .count() == 1, \
         f'{director.select("NAME").collect()[0][0]} did not direct movie {movie.select("NAME").collect()[0][0]} or the link exists multiple times.'
 
     # Link between movie "The Godfather", 1972 and director "Francis Ford Coppola" -> deleted
     movie = df_movies \
-        .filter((df_movies.ID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] == DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] == DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     director = df_directors_0 \
-        .filter((df_directors_0.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors_0.PublicID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     link_movies_directors = df_link_movies_directors \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("DIRECTORS_HKEY") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
     assert df_sat_effectivity_movies_directors \
         .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
@@ -803,29 +839,29 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Link between movie "The Godfather", 1972 and director "Christopher Nolan" -> exists
     movie = df_movies \
-        .filter((df_movies.ID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     director = df_directors_0 \
-        .filter((df_directors_0.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors_0.PublicID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     assert df_link_movies_directors \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("DIRECTORS_HKEY") == director.select(DV_CONV.hkey_column_name()).collect()[0][0])) \
         .count() == 1, \
         f'{director.select("NAME").collect()[0][0]} did not direct movie {movie.select("NAME").collect()[0][0]} or the link exists multiple times.'
 
     # Link between movie "The Godfather", 1972 and director "Christopher Nolan" -> not deleted
     movie = df_movies \
-        .filter((df_movies.ID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 2) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     director = df_directors_0 \
-        .filter((df_directors_0.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors_0.PublicID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors_0[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     link_movies_directors = df_link_movies_directors \
         .filter( \
-            (col("HKEY_MOVIES") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
-            (col("HKEY_DIRECTORS") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
+            (col("MOVIES_HKEY") == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) & \
+            (col("DIRECTORS_HKEY") == director.select(DV_CONV.hkey_column_name()).collect()[0][0]))
     assert not df_sat_effectivity_movies_directors \
         .filter(col(DV_CONV.hkey_column_name()) == link_movies_directors.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
@@ -835,7 +871,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rating of movie "The Shawshank Redemption", 1994, is 9,5
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rating = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -847,7 +883,7 @@ def test_datavault_transformatios(spark: SparkSession):
 
     # Rank of movie "The Shawshank Redemption", 1994, is 3
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     rank = df_sat_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
@@ -882,7 +918,7 @@ def test_pit_tables(spark: SparkSession):
 
     # Movie "The Dark Knight", 2008: load_end_date == delete_date
     movie = df_movies \
-        .filter((df_movies.ID == 3) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 3) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     
     df_hub_movie = df_hub_movies \
@@ -901,7 +937,7 @@ def test_pit_tables(spark: SparkSession):
 
     # Movie "The Shawshank Redemption", 1994: load_end_date == datetime.max
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     
     df_hub_movie = df_hub_movies \
@@ -931,16 +967,16 @@ def test_business_vault(spark: SparkSession):
   
     # Test read_data_from_hub(...) with movie "The Shawshank Redemption", 1994
     movie = df_movies \
-        .filter((df_movies.ID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
 
-    id = movie.select("ID").collect()[0][0]
+    id = movie.select("PublicID").collect()[0][0]
     name = movie.select("NAME").collect()[0][0]
     year = movie.select("YEAR").collect()[0][0]
     rating = movie.select("RATING").collect()[0][0]
     rank = movie.select("RANK").collect()[0][0]
 
-    columns = ["ID", "NAME", "YEAR", "RATING", "RANK"]
+    columns = ["PublicID", "NAME", "YEAR", "RATING", "RANK"]
     df = business_vault.read_data_from_hub(SOURCE_TABLE_NAME_MOVIES, columns, include_hkey=True)
 
     df = df \
@@ -961,14 +997,14 @@ def test_business_vault(spark: SparkSession):
 
     # Test read_data_from_hub(...) with actor "Morgan Freeman"
     actor = df_actors \
-        .filter((df_actors.ID == 2) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_actors.PublicID == 2) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
 
-    id = actor.select("ID").collect()[0][0]
+    id = actor.select("PublicID").collect()[0][0]
     name = actor.select("NAME").collect()[0][0]
     country = actor.select("COUNTRY").collect()[0][0]
 
-    columns = ["ID", "NAME", "COUNTRY"]
+    columns = ["PublicID", "NAME", "COUNTRY"]
     df = business_vault.read_data_from_hub(SOURCE_TABLE_NAME_ACTORS, columns, include_hkey=True)
 
     df = df \
@@ -985,14 +1021,14 @@ def test_business_vault(spark: SparkSession):
 
     # Test read_data_from_hub(...) with director "Quentin Terintino"
     director = df_directors \
-        .filter((df_directors.ID == 5) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors.PublicID == 5) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
 
-    id = director.select("ID").collect()[0][0]
+    id = director.select("PublicID").collect()[0][0]
     name = director.select("NAME").collect()[0][0]
     country = director.select("COUNTRY").collect()[0][0]
 
-    columns = ["ID", "NAME", "COUNTRY"]
+    columns = ["PublicID", "NAME", "COUNTRY"]
     df = business_vault.read_data_from_hub(SOURCE_TABLE_NAME_DIRECTORS, columns, include_hkey=True)
 
     df = df \
@@ -1012,17 +1048,17 @@ def test_business_vault(spark: SparkSession):
         .filter((col("MOVIE_ID") == 1) & (col("ACTOR_ID") == 1)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     movie = df_movies \
-        .filter((df_movies.ID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == casting.select("MOVIE_ID").collect()[0][0]) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     actor = df_actors \
-        .filter((df_actors.ID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_actors.PublicID == casting.select("ACTOR_ID").collect()[0][0]) & (df_actors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
 
-    movie_columns = ["ID", "NAME", "YEAR", "RATING", "RANK"]
-    actor_columns = ["ID", "NAME", "COUNTRY"]
+    movie_columns = ["PublicID", "NAME", "YEAR", "RATING", "RANK"]
+    actor_columns = ["PublicID", "NAME", "COUNTRY"]
     
     df = business_vault.join_linked_hubs(SOURCE_TABLE_NAME_MOVIES, SOURCE_TABLE_NAME_ACTORS, SOURCE_TABLE_NAME_CASTINGS, 
-        "HKEY_MOVIES", "HKEY_ACTORS", movie_columns, actor_columns, include_hkeys=True)
+        "MOVIES_HKEY", "ACTORS_HKEY", movie_columns, actor_columns, include_hkeys=True)
 
     column_prefix_movies_hub = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES)}"
     column_prefix_actors_hub = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS)}"
@@ -1044,12 +1080,12 @@ def test_business_vault(spark: SparkSession):
         f"{column_prefix_actors_sat}.{actor_columns[2]}"
     ]
 
-    movie_id = movie.select("ID").collect()[0][0]
+    movie_id = movie.select("PublicID").collect()[0][0]
     movie_name = movie.select("NAME").collect()[0][0]
     year = movie.select("YEAR").collect()[0][0]
     rating = movie.select("RATING").collect()[0][0]
     rank = movie.select("RANK").collect()[0][0]
-    actor_id = actor.select("ID").collect()[0][0]
+    actor_id = actor.select("PublicID").collect()[0][0]
     actor_name = actor.select("NAME").collect()[0][0]
     country = actor.select("COUNTRY").collect()[0][0]
 
@@ -1072,17 +1108,17 @@ def test_business_vault(spark: SparkSession):
 
     # Test join_linked_hubs(...) with link between movie "Schindler's List", 1993 and director "Steven Spielberg"
     movie = df_movies \
-        .filter((df_movies.ID == 6) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_movies.PublicID == 6) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
     director = df_directors \
-        .filter((df_directors.ID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
+        .filter((df_directors.PublicID == movie.select("DIRECTOR_ID").collect()[0][0]) & (df_directors[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
 
-    movie_columns = ["ID", "NAME", "YEAR", "RATING", "RANK"]
-    director_columns = ["ID", "NAME", "COUNTRY"]
+    movie_columns = ["PublicID", "NAME", "YEAR", "RATING", "RANK"]
+    director_columns = ["PublicID", "NAME", "COUNTRY"]
     
     df = business_vault.join_linked_hubs(SOURCE_TABLE_NAME_MOVIES, SOURCE_TABLE_NAME_DIRECTORS, LINK_TABLE_NAME_MOVIES_DIRECTORS, 
-        "HKEY_MOVIES", "HKEY_DIRECTORS", movie_columns, director_columns, include_hkeys=True)
+        "MOVIES_HKEY", "DIRECTORS_HKEY", movie_columns, director_columns, include_hkeys=True)
 
     column_prefix_movies_hub = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES)}"
     column_prefix_directors_hub = f"spark_catalog.{raw_vault_config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}"
@@ -1104,12 +1140,12 @@ def test_business_vault(spark: SparkSession):
         f"{column_prefix_directors_sat}.{director_columns[2]}"
     ]
 
-    movie_id = movie.select("ID").collect()[0][0]
+    movie_id = movie.select("PublicID").collect()[0][0]
     movie_name = movie.select("NAME").collect()[0][0]
     year = movie.select("YEAR").collect()[0][0]
     rating = movie.select("RATING").collect()[0][0]
     rank = movie.select("RANK").collect()[0][0]
-    director_id = director.select("ID").collect()[0][0]
+    director_id = director.select("PublicID").collect()[0][0]
     director_name = director.select("NAME").collect()[0][0]
     country = director.select("COUNTRY").collect()[0][0]
 
@@ -1129,3 +1165,33 @@ def test_business_vault(spark: SparkSession):
         f'The attribute {director_columns[1]} is set to {df.select(director_columns[1]).collect()[0][0]}. Correct would be {director_name}.'
     assert df.select(director_columns[2]).collect()[0][0] == country, \
         f'The attribute {director_columns[2]} is set to {df.select(director_columns[2]).collect()[0][0]}. Correct would be {country}.'
+
+
+def test_curated(spark: SparkSession):
+    config = CuratedConfiguration(SOURCE_SYSTEM_NAME, RAW_BASE_PATH)
+    business_vault = BusinessVault(spark, config)
+
+    create_reference_tables(spark, business_vault)
+
+    typelists_table_name = f'{DV_CONV.ref_name(TYPELISTS_TABLE_NAME)}'
+    typelists_active_table_name = f'{DV_CONV.ref_name(TYPELISTS_ACTIVE_TABLE_NAME)}'
+    business_vault.create_active_code_reference_table(typelists_table_name, typelists_active_table_name, 'PublicID')
+    df_typelists = spark.table(f'{config.raw_database_name}.{typelists_active_table_name}')
+    typelists_config = TypelistsConfiguration(df_typelists)
+    
+    curated_vault = Curated(spark, config, business_vault, typelists_config)
+    curated_vault.initialize_database()
+
+    df = curated_vault.map_to_curated([
+        FieldDefinition('cc_movies', 'PublicID'),
+        FieldDefinition('cc_movies', 'NAME'),
+        FieldDefinition('cc_movies', 'YEAR'),
+        FieldDefinition('cc_movies', 'DIRECTOR_ID', to_field_name='PublicID', foreign_key=True, foreign_key_to_table_name='cc_directors'),
+        FieldDefinition('cc_movies', 'RATING'),
+        FieldDefinition('cc_movies', 'RANK'),
+        FieldDefinition('cc_directors', 'PublicID'),
+        FieldDefinition('cc_directors', 'NAME'),
+        FieldDefinition('cc_directors', 'COUNTRY')
+    ])
+
+    df.orderBy(["spark_catalog.test__raw.hub__movies.NAME", DV_CONV.load_date_column_name()]).show(100)
