@@ -303,9 +303,12 @@ def create_data_vault_tables(raw_vault: RawVault) -> None:
     raw_vault.create_link(LINK_TABLE_NAME_MOVIES_DIRECTORS, ["MOVIES_HKEY", "DIRECTORS_HKEY"])
 
     # create satellites
-    raw_vault.create_satellite(SOURCE_TABLE_NAME_MOVIES, [
+    raw_vault.create_satellite(f"PUBLIC_{SOURCE_TABLE_NAME_MOVIES}", [
         ColumnDefinition("PublicID", StringType()),
-        ColumnDefinition("RATING", DoubleType()),
+        ColumnDefinition("RATING", DoubleType())
+    ])
+
+    raw_vault.create_satellite(f"PRIVATE_{SOURCE_TABLE_NAME_MOVIES}", [
         ColumnDefinition("RANK", IntegerType())
     ])
 
@@ -331,7 +334,10 @@ def load_from_prepared_staging_table(raw_vault: RawVault, batch: int) -> None:
     # load hubs and satellites
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_MOVIES}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES), HKEY_COLUMNS_MOVIES, 
-        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES), ['PublicID', 'RATING', 'RANK'])])
+        [
+            SatelliteDefinition(DV_CONV.sat_name(f"PUBLIC_{SOURCE_TABLE_NAME_MOVIES}"), ['PublicID', 'RATING']),
+            SatelliteDefinition(DV_CONV.sat_name(f"PRIVATE_{SOURCE_TABLE_NAME_MOVIES}"), ['RANK'])
+        ])
 
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_ACTORS}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS), HKEY_COLUMNS_ACTORS, 
@@ -345,12 +351,12 @@ def load_from_prepared_staging_table(raw_vault: RawVault, batch: int) -> None:
     raw_vault.load_link_from_prepared_stage_table(
         f"{STAGING_TABLE_NAME_CASTINGS}_{batch}", 
         [
-            LinkedHubDefinition(SOURCE_TABLE_NAME_MOVIES, "MOVIES_HKEY", ForeignKey("MOVIE_ID", ColumnReference(f"{STAGING_TABLE_NAME_MOVIES}_{batch}", "PublicID"))),
-            LinkedHubDefinition(SOURCE_TABLE_NAME_ACTORS, "ACTORS_HKEY", ForeignKey("ACTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_ACTORS}_{batch}", "PublicID")))
+            LinkedHubDefinition(SOURCE_TABLE_NAME_MOVIES, "MOVIES_HKEY", ForeignKey("MOVIE_ID", ColumnReference(f"{STAGING_TABLE_NAME_MOVIES}_{batch}", "PublicID")), DV_CONV.sat_name(f"PUBLIC_{SOURCE_TABLE_NAME_MOVIES}")),
+            LinkedHubDefinition(SOURCE_TABLE_NAME_ACTORS, "ACTORS_HKEY", ForeignKey("ACTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_ACTORS}_{batch}", "PublicID")), DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS))
         ], DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS), None)
     
     raw_vault.load_link_for_linked_source_tables_from_prepared_staging_tables(f"{STAGING_TABLE_NAME_MOVIES}_{batch}", SOURCE_TABLE_NAME_DIRECTORS,
-        ForeignKey("DIRECTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_DIRECTORS}_{batch}", "PublicID")), LINK_TABLE_NAME_MOVIES_DIRECTORS, "MOVIES_HKEY", "DIRECTORS_HKEY")
+        ForeignKey("DIRECTOR_ID", ColumnReference(f"{STAGING_TABLE_NAME_DIRECTORS}_{batch}", "PublicID")), LINK_TABLE_NAME_MOVIES_DIRECTORS, "MOVIES_HKEY", "DIRECTORS_HKEY", DV_CONV.sat_name(SOURCE_TABLE_NAME_DIRECTORS))
 
 
 def create_pit_tables(raw_vault: RawVault) -> None:
@@ -360,9 +366,10 @@ def create_pit_tables(raw_vault: RawVault) -> None:
     :param raw_vault - The RawVault object needed for creating PIT tables.
     """
 
-    raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_MOVIES, SOURCE_TABLE_NAME_MOVIES)
-    raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_ACTORS, SOURCE_TABLE_NAME_ACTORS)
-    raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_DIRECTORS, SOURCE_TABLE_NAME_DIRECTORS)
+    raw_vault.create_point_in_time_table_for_single_satellite(f"PUBLIC_{SOURCE_TABLE_NAME_MOVIES}", f"PUBLIC_{SOURCE_TABLE_NAME_MOVIES}", SOURCE_TABLE_NAME_MOVIES)
+    raw_vault.create_point_in_time_table_for_single_satellite(f"PRIVATE_{SOURCE_TABLE_NAME_MOVIES}", f"PRIVATE_{SOURCE_TABLE_NAME_MOVIES}", SOURCE_TABLE_NAME_MOVIES)
+    raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_ACTORS, SOURCE_TABLE_NAME_ACTORS, SOURCE_TABLE_NAME_ACTORS)
+    raw_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_DIRECTORS, SOURCE_TABLE_NAME_DIRECTORS, SOURCE_TABLE_NAME_DIRECTORS)
 
 
 def create_reference_tables(spark: SparkSession, business_vault: RawVault) -> None: 
@@ -435,7 +442,10 @@ def test_datavault_transformatios(spark: SparkSession):
     df_hub_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_link_castings = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS)}')
     df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
-    df_sat_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}')
+    sat_private_movies_name = DV_CONV.sat_name(f"PRIVATE_{SOURCE_TABLE_NAME_MOVIES}")
+    sat_public_movies_name = DV_CONV.sat_name(f"PUBLIC_{SOURCE_TABLE_NAME_MOVIES}")
+    df_sat_private_movies = spark.table(f'{config.raw_database_name}.{sat_private_movies_name}')
+    df_sat_public_movies = spark.table(f'{config.raw_database_name}.{sat_public_movies_name}')
     df_sat_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}')
 
     df_sat_effectivity_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_MOVIES)}')
@@ -578,7 +588,7 @@ def test_datavault_transformatios(spark: SparkSession):
     movie = df_movies \
         .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
-    rating = df_sat_movies \
+    rating = df_sat_public_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
         .select("RATING") \
@@ -590,7 +600,7 @@ def test_datavault_transformatios(spark: SparkSession):
     movie = df_movies \
         .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
-    rank = df_sat_movies \
+    rank = df_sat_private_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
         .select("RANK") \
@@ -630,7 +640,10 @@ def test_datavault_transformatios(spark: SparkSession):
     df_hub_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_link_castings = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS)}')
     df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
-    df_sat_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}')
+    sat_private_movies_name = DV_CONV.sat_name(f"PRIVATE_{SOURCE_TABLE_NAME_MOVIES}")
+    sat_public_movies_name = DV_CONV.sat_name(f"PUBLIC_{SOURCE_TABLE_NAME_MOVIES}")
+    df_sat_private_movies = spark.table(f'{config.raw_database_name}.{sat_private_movies_name}')
+    df_sat_public_movies = spark.table(f'{config.raw_database_name}.{sat_public_movies_name}')
     df_sat_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}')
 
     df_sat_effectivity_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_MOVIES)}')
@@ -761,7 +774,7 @@ def test_datavault_transformatios(spark: SparkSession):
     movie = df_movies \
         .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
-    rating = df_sat_movies \
+    rating = df_sat_public_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
         .select("RATING") \
@@ -773,7 +786,7 @@ def test_datavault_transformatios(spark: SparkSession):
     movie = df_movies \
         .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
-    rank = df_sat_movies \
+    rank = df_sat_private_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
         .select("RANK") \
@@ -796,7 +809,10 @@ def test_datavault_transformatios(spark: SparkSession):
     df_hub_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS)}')
     df_link_castings = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(SOURCE_TABLE_NAME_CASTINGS)}')
     df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
-    df_sat_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}')
+    sat_private_movies_name = DV_CONV.sat_name(f"PRIVATE_{SOURCE_TABLE_NAME_MOVIES}")
+    sat_public_movies_name = DV_CONV.sat_name(f"PUBLIC_{SOURCE_TABLE_NAME_MOVIES}")
+    df_sat_private_movies = spark.table(f'{config.raw_database_name}.{sat_private_movies_name}')
+    df_sat_public_movies = spark.table(f'{config.raw_database_name}.{sat_public_movies_name}')
     df_sat_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}')
 
     df_sat_effectivity_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_MOVIES)}')
@@ -873,7 +889,7 @@ def test_datavault_transformatios(spark: SparkSession):
     movie = df_movies \
         .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
-    rating = df_sat_movies \
+    rating = df_sat_public_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
         .select("RATING") \
@@ -885,7 +901,7 @@ def test_datavault_transformatios(spark: SparkSession):
     movie = df_movies \
         .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPERATIONS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
-    rank = df_sat_movies \
+    rank = df_sat_private_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
         .select("RANK") \
@@ -913,7 +929,8 @@ def test_pit_tables(spark: SparkSession):
     # tests
     df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_FULL')
     df_hub_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES)}')
-    df_pit = spark.table(f'{config.raw_database_name}.{DV_CONV.pit_name(SOURCE_TABLE_NAME_MOVIES)}')
+    pit_private_movies_name = DV_CONV.pit_name(f"PRIVATE_{SOURCE_TABLE_NAME_MOVIES}")
+    df_pit_private = spark.table(f'{config.raw_database_name}.{pit_private_movies_name}')
     df_sat_effectivity_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_MOVIES)}')
 
     # Movie "The Dark Knight", 2008: load_end_date == delete_date
@@ -928,8 +945,8 @@ def test_pit_tables(spark: SparkSession):
         .filter(col(DV_CONV.deleted_column_name()) == True) \
         .select(df_sat_effectivity_movies[DV_CONV.load_date_column_name()]).collect()[0][0]
 
-    load_end_date = df_hub_movie.join(df_pit, df_hub_movie[DV_CONV.hkey_column_name()] == df_pit[DV_CONV.hkey_column_name()]) \
-        .select(df_pit[DV_CONV.load_end_date_column_name()]) \
+    load_end_date = df_hub_movie.join(df_pit_private, df_hub_movie[DV_CONV.hkey_column_name()] == df_pit_private[DV_CONV.hkey_column_name()]) \
+        .select(df_pit_private[DV_CONV.load_end_date_column_name()]) \
         .orderBy([col(DV_CONV.load_end_date_column_name()).desc()]).collect()[0][0]
     
     assert delete_date == load_end_date, \
@@ -943,8 +960,8 @@ def test_pit_tables(spark: SparkSession):
     df_hub_movie = df_hub_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0])
 
-    load_end_date = df_hub_movie.join(df_pit, df_hub_movie[DV_CONV.hkey_column_name()] == df_pit[DV_CONV.hkey_column_name()]) \
-        .select(df_pit[DV_CONV.load_end_date_column_name()]) \
+    load_end_date = df_hub_movie.join(df_pit_private, df_hub_movie[DV_CONV.hkey_column_name()] == df_pit_private[DV_CONV.hkey_column_name()]) \
+        .select(df_pit_private[DV_CONV.load_end_date_column_name()]) \
         .orderBy([col(DV_CONV.load_end_date_column_name()).desc()]).collect()[0][0]
     
     assert load_end_date == datetime.max, \

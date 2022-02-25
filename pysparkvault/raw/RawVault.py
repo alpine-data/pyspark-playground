@@ -325,7 +325,7 @@ class ForeignKey:
 
 class LinkedHubDefinition:
 
-    def __init__(self, name: str, hkey_column_name: str, foreign_key: ForeignKey) -> None:
+    def __init__(self, name: str, hkey_column_name: str, foreign_key: ForeignKey, fk_satellite_name: str) -> None:
         """
         A value class to specify a linked hub of a Link table.
 
@@ -336,6 +336,7 @@ class LinkedHubDefinition:
         self.name = name
         self.hkey_column_name = hkey_column_name
         self.foreign_key = foreign_key
+        self.fk_satellite_name = fk_satellite_name
 
 
 class RawVault:
@@ -385,14 +386,14 @@ class RawVault:
 
         self.create_effectivity_satellite(self.conventions.sat_effectivity_name(name))
 
-    def create_point_in_time_table_for_single_satellite(self, pit_name: str, satellite_name: str) -> None:
+    def create_point_in_time_table_for_single_satellite(self, pit_name: str, satellite_name: str, hub_name: str) -> None:
         """
         Creates a point-in-time-table for a single satellite by adding a calculated load end date column.
 
         :param satellite_name - The name of the satellite from which the PIT is derived.
         """
         sat_table_name = f'{self.config.raw_database_name}.{self.conventions.sat_name(satellite_name)}'
-        sat_effectivity_table_name = f'{self.config.raw_database_name}.{self.conventions.sat_effectivity_name(satellite_name)}'
+        sat_effectivity_table_name = f'{self.config.raw_database_name}.{self.conventions.sat_effectivity_name(hub_name)}'
         pit_table_name = f'{self.config.raw_database_name}.{self.conventions.pit_name(pit_name)}'
 
         sat_effectivity_df = self.spark.table(sat_effectivity_table_name)
@@ -508,14 +509,19 @@ class RawVault:
         self.spark.sql(f"""CREATE DATABASE IF NOT EXISTS {self.config.staging_prepared_database_name} LOCATION '{self.config.staging_prepared_base_path}'""")
         self.spark.sql(f"""CREATE DATABASE IF NOT EXISTS {self.config.raw_database_name} LOCATION '{self.config.raw_base_path}'""")
 
-    def load_hub_from_prepared_staging_table(self, staging_table_name: str, hub_table_name: str, business_key_column_names: List[str], satellites: List[SatelliteDefinition] = []) -> None:
+    def load_hub_from_prepared_staging_table(
+        self, 
+        staging_table_name: str, 
+        hub_table_name: str, 
+        business_key_column_names: List[str], 
+        satellites: List[SatelliteDefinition] = []) -> None:
         """
         Loads a hub from a prepared staging table. The prepared staging table must have a HKEY calculated.
 
         :param staging_table_name - The name of the staging table.
         :param hub_table_name - The name of the hub table in the raw vault.
         :param business_key_column_names - The list of columns which contribute to the business key of the hub.
-        :param satellites - Optional. A list of satellites which is loaded from the prepared staging table. The form of the tuple is.
+        :param satellites - Optional. A list of satellites which is loaded from the prepared staging table.
         """
 
         sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(hub_table_name))
@@ -558,7 +564,8 @@ class RawVault:
         from_staging_foreign_key: ForeignKey, 
         link_table_name: str,
         from_hkey_column_name: str,
-        to_hkey_column_name: str) -> None:
+        to_hkey_column_name: str,
+        to_sat_name: str) -> None:
         """
         Loads a link for two linked source tables based on the prepared staging tables.
 
@@ -576,8 +583,7 @@ class RawVault:
         link_table_name = f'{self.config.raw_database_name}.{link_table_name}'
         hub_table_name = self.conventions.hub_name(to_table_name)
         hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
-        sat_table_name = self.conventions.sat_name(to_table_name)
-        sat_table_name = f'{self.config.raw_database_name}.{sat_table_name}'
+        sat_table_name = f'{self.config.raw_database_name}.{to_sat_name}'
         
         link_df = self.spark.table(link_table_name)
         hub_df = self.spark.table(hub_table_name)
@@ -700,8 +706,13 @@ class RawVault:
             .distinct()
 
         self.load_effectivity_satellite_from_prepared_stage_dataframe(joined_df, sat_effectivity_table_name)
+        # TODO jb: load link satellites
     
-    def load_link_from_prepared_stage_table(self, staging_table_name: str, links: List[LinkedHubDefinition], link_table_name: str, satellites: List[SatelliteDefinition]) -> None:
+    def load_link_from_prepared_stage_table(
+        self, staging_table_name: str, 
+        links: List[LinkedHubDefinition], 
+        link_table_name: str, 
+        satellites: List[SatelliteDefinition]) -> None:
         """
         Loads a link with data from a staging table which is a already a link table in the source.
 
@@ -721,7 +732,7 @@ class RawVault:
         
         for link in links:
             hub_df = self.spark.table(f'{self.config.raw_database_name}.{self.conventions.hub_name(link.name)}')
-            sat_df = self.spark.table(f'{self.config.raw_database_name}.{self.conventions.sat_name(link.name)}') \
+            sat_df = self.spark.table(f'{self.config.raw_database_name}.{link.fk_satellite_name}') \
                 .select([self.conventions.hkey_column_name(), link.foreign_key.to.column])
 
             join_condition = hub_df[self.conventions.hkey_column_name()] == sat_df[self.conventions.hkey_column_name()]
@@ -755,8 +766,14 @@ class RawVault:
             .join(link_df, join_condition, how='left_anti') \
             .select(columns) \
             .write.mode('append').saveAsTable(link_table_name)
+        # TODO jb: load link satellites
 
-    def load_references_from_prepared_stage_table(self, staging_table_name: str, reference_table_name: str, id_column: str, attributes: List[str]) -> None:
+    def load_references_from_prepared_stage_table(
+        self, 
+        staging_table_name: str, 
+        reference_table_name: str, 
+        id_column: str, 
+        attributes: List[str]) -> None:
         """
         Loads a reference table from a staging table. 
 
@@ -784,8 +801,12 @@ class RawVault:
             .join(ref_df, join_condition, how='left_anti') \
             .write.mode('append').saveAsTable(ref_table_name)
 
-
-    def load_code_references_from_prepared_stage_table(self, staging_table_name: str, reference_table_name: str, id_column: str, attributes: List[str]) -> None:
+    def load_code_references_from_prepared_stage_table(
+        self, 
+        staging_table_name: str, 
+        reference_table_name: str, 
+        id_column: str, 
+        attributes: List[str]) -> None:
         """
         Loads a reference table from a staging table. 
 
