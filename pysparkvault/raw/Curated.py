@@ -252,7 +252,6 @@ class Curated:
                     .drop(source_dataframes[source_table][self.conventions.hkey_column_name()])
 
         # select all columns
-        # jb: this is not working for duplicate column names
         # columns = list([source_dataframes[f.from_table][f.to_field_name] for f in fields])
         # result = result.select(*columns)
 
@@ -297,7 +296,6 @@ class Curated:
 
         df_lnk = self.spark.table(f'{self.config.raw_database_name}.{lnk_table_name}')
 
-        # jb: make 'PublicID' configurable?
         df_lnk = df_lnk \
             .join(to_df, df_lnk[lnk_to_hkey_column_name] == to_df_hkey, how='left') \
             .withColumnRenamed('PublicID', column_name) \

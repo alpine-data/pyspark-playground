@@ -1,3 +1,4 @@
+from traceback import print_tb
 import pyspark.sql.functions as F
 
 from datetime import datetime
@@ -704,6 +705,7 @@ class RawVault:
     def load_link_from_prepared_stage_table(self, staging_table_name: str, links: List[LinkedHubDefinition], link_table_name: str, satellites: List[SatelliteDefinition]) -> None:
         """
         Loads a link with data from a staging table which is a already a link table in the source.
+        TODO jb: add hint regarding hub and sat
 
         :param staging_table_name - The name of the staging table from which the link table is derived.
         :param links - The list of linked hubs for the link table.
@@ -831,33 +833,23 @@ class RawVault:
             self.conventions.CDC_OPERATIONS.SNAPSHOT
         ]
 
-        max_dates_df = staged_df \
-            .filter(staged_df[self.conventions.cdc_operation_column_name()].isin(allowed_cdc_operations)) \
-            .groupBy(self.conventions.hkey_column_name()) \
-            .agg(F.max(self.conventions.cdc_load_date_column_name()).alias(self.conventions.max_cdc_load_date_column_name()))
-
-        join_condition = [staged_df[self.conventions.hkey_column_name()] == max_dates_df[self.conventions.hkey_column_name()], \
-            staged_df[self.conventions.cdc_load_date_column_name()] == max_dates_df[self.conventions.max_cdc_load_date_column_name()]]
-
-        staged_df = staged_df \
-            .join(max_dates_df, join_condition) \
-            .filter(staged_df[self.conventions.cdc_operation_column_name()].isin(allowed_cdc_operations)) \
-            .drop(max_dates_df[self.conventions.hkey_column_name()])
-
         columns = [
             self.conventions.hkey_column_name(), self.conventions.hdiff_column_name(), 
             self.conventions.load_date_column_name()
         ] + [ column for column in satellite.attributes ]
 
-        join_condition = [sat_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], \
-            sat_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
-
         # TODO mw: Remove  distinct() for performance reasons? Should not happen in any case.
-        # filter() excludes BEFORE_UPDATE and DELETE operations that would cause inconsistencies
-        staged_df \
+        staged_df = staged_df \
+            .filter(staged_df[self.conventions.cdc_operation_column_name()].isin(allowed_cdc_operations)) \
+            .withColumn(self.conventions.load_date_column_name(), staged_df[self.conventions.cdc_load_date_column_name()]) \
             .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash(satellite.attributes)) \
             .select(columns) \
             .distinct() \
+
+        join_condition = [sat_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], \
+            sat_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
+
+        staged_df \
             .join(sat_df, join_condition, how='left_anti') \
             .write.mode('append').saveAsTable(sat_table_name)
 
@@ -868,42 +860,34 @@ class RawVault:
         :param staged_df - The dataframe which contains the staged and prepared data for the satellite.
         :param satellite - The satellite definition.
         """
+
+        sat_effectivity_df = self.spark.table(sat_effectivity_table_name)
         
-        columns = [self.conventions.hkey_column_name(), self.conventions.max_cdc_load_date_column_name()]
         allowed_cdc_operations = [
             self.conventions.CDC_OPERATIONS.CREATE, self.conventions.CDC_OPERATIONS.DELETE, 
             self.conventions.CDC_OPERATIONS.SNAPSHOT
         ]
 
-        max_dates_df = staged_df \
-            .filter(staged_df[self.conventions.cdc_operation_column_name()].isin(allowed_cdc_operations)) \
-            .groupBy(self.conventions.hkey_column_name()) \
-            .agg(F.max(self.conventions.cdc_load_date_column_name()).alias(self.conventions.max_cdc_load_date_column_name()))
-
-        join_condition = [staged_df[self.conventions.hkey_column_name()] == max_dates_df[self.conventions.hkey_column_name()], \
-            staged_df[self.conventions.cdc_load_date_column_name()] == max_dates_df[self.conventions.max_cdc_load_date_column_name()]]
-
-        staged_df = staged_df \
-            .join(max_dates_df, join_condition) \
-            .drop(max_dates_df[self.conventions.hkey_column_name()])
-
-        sat_effectivity_df = self.spark.table(sat_effectivity_table_name)
         columns = [
             self.conventions.hkey_column_name(), self.conventions.hdiff_column_name(),
             self.conventions.load_date_column_name(), self.conventions.deleted_column_name()
         ]
+
+        deleted_column = F.when(F.col(self.conventions.cdc_operation_column_name()) == 1, True).otherwise(False)
+        staged_df = staged_df \
+            .filter(staged_df[self.conventions.cdc_operation_column_name()].isin(allowed_cdc_operations)) \
+            .withColumn(self.conventions.load_date_column_name(), staged_df[self.conventions.cdc_load_date_column_name()]) \
+            .withColumn(self.conventions.deleted_column_name(), deleted_column) \
+            .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash([self.conventions.deleted_column_name()])) \
+            .select(columns) \
+            .distinct()
 
         join_condition = [
             sat_effectivity_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], \
             sat_effectivity_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]
         ]
 
-        deleted_column = F.when(F.col(self.conventions.cdc_operation_column_name()) == 1, True).otherwise(False)
-        staged_df = staged_df \
-            .withColumn(self.conventions.deleted_column_name(), deleted_column) \
-            .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash([self.conventions.deleted_column_name()])) \
-            .select(columns) \
-            .distinct() \
+        staged_df \
             .join(sat_effectivity_df, join_condition, how='left_anti') \
             .write.mode('append').saveAsTable(sat_effectivity_table_name)
 
