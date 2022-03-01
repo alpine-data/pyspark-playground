@@ -894,7 +894,6 @@ def test_datavault_transformatios(spark: SparkSession):
         f'The queried rank of movie {movie.select("NAME").collect()[0][0]} is {rank}. Correct would be {movie.select("RANK").collect()[0][0]}.'
 
 
-@pytest.mark.skip()
 def test_pit_tables(spark: SparkSession):
     """
     Executes several test cases for PIT table generation.
@@ -924,9 +923,10 @@ def test_pit_tables(spark: SparkSession):
     
     df_hub_movie = df_hub_movies \
         .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0])
-    
+
     delete_date = df_hub_movie.join(df_sat_effectivity_movies, df_hub_movie[DV_CONV.hkey_column_name()] == df_sat_effectivity_movies[DV_CONV.hkey_column_name()]) \
         .filter(col(DV_CONV.deleted_column_name()) == True) \
+        .orderBy(df_sat_effectivity_movies[DV_CONV.load_date_column_name()].desc()) \
         .select(df_sat_effectivity_movies[DV_CONV.load_date_column_name()]).collect()[0][0]
 
     load_end_date = df_hub_movie.join(df_pit, df_hub_movie[DV_CONV.hkey_column_name()] == df_pit[DV_CONV.hkey_column_name()]) \
@@ -952,7 +952,6 @@ def test_pit_tables(spark: SparkSession):
         f'The load_end_date {load_end_date} is not correct. Correct would be {datetime.max}.'
 
 
-@pytest.mark.skip()
 def test_business_vault(spark: SparkSession):
     # initialize business vault
     raw_vault_config = RawVaultConfiguration(
@@ -1169,7 +1168,6 @@ def test_business_vault(spark: SparkSession):
         f'The attribute {director_columns[2]} is set to {df.select(director_columns[2]).collect()[0][0]}. Correct would be {country}.'
 
 
-@pytest.mark.skip()
 def test_curated(spark: SparkSession):
     config = CuratedConfiguration(SOURCE_SYSTEM_NAME, RAW_BASE_PATH)
     business_vault = BusinessVault(spark, config)

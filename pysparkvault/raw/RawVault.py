@@ -1,4 +1,3 @@
-from traceback import print_tb
 import pyspark.sql.functions as F
 
 from datetime import datetime
@@ -408,28 +407,53 @@ class RawVault:
             .join(sat_df.alias('r'), join_condition, how='left') \
             .select(
                 F.col(f'l.{self.conventions.hkey_column_name()}'), 
-                F.col(f'l.{self.conventions.load_date_column_name()}'), 
+                F.col(f'l.{self.conventions.load_date_column_name()}'),
                 F.col(f'r.{self.conventions.load_date_column_name()}').alias(self.conventions.load_end_date_column_name())) \
             .groupBy(
                 F.col(self.conventions.hkey_column_name()),
                 F.col(self.conventions.load_date_column_name())) \
-            .agg(F.min(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name()))
+            .agg(F.min(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name())) \
+            .orderBy([F.col(f'l.{self.conventions.hkey_column_name()}'), F.col(f'l.{self.conventions.load_date_column_name()}')])
 
-        # join with effectivity satellite to extract deleted flag -> set load_end_date if deleted is true
+        sat_effectivity_df = sat_effectivity_df.alias('del') \
+            .orderBy([self.conventions.hkey_column_name(), self.conventions.load_date_column_name()]) \
+            .filter(F.col(self.conventions.deleted_column_name()) == True)
+
+        # join in the following cases:
+        # - delete_date is between load_date and load_end_date
+        # - delete date is larger than load_date and no load_end_date is set
+        join_condition = [
+            (
+                (
+                    (F.col(f'l.{self.conventions.hkey_column_name()}') == F.col(f'del.{self.conventions.hkey_column_name()}')) &
+                    (F.col(f'l.{self.conventions.load_date_column_name()}') < F.col(f'del.{self.conventions.load_date_column_name()}')) &
+                    (F.col(self.conventions.load_end_date_column_name()) > F.col(f'del.{self.conventions.load_date_column_name()}'))
+                ) |
+                (
+                    (F.col(f'l.{self.conventions.hkey_column_name()}') == F.col(f'del.{self.conventions.hkey_column_name()}')) &
+                    (F.col(f'l.{self.conventions.load_date_column_name()}') < F.col(f'del.{self.conventions.load_date_column_name()}')) &
+                    (F.col(self.conventions.load_end_date_column_name()).isNull())
+                )
+            )
+        ]
+        
+        # join with effectivity satellite to extract deleted flag 
+        # -> set load_end_date if deleted is true
+        # -> set load_end_date to datetime.max if load_end_date is NULL
         pit_df = pit_df \
-            .join(sat_effectivity_df.alias('r'), join_condition, how="left") \
-            .drop(F.col(f'r.{self.conventions.hkey_column_name()}')) \
-            .drop(F.col(f'r.{self.conventions.hdiff_column_name()}')) \
+            .join(sat_effectivity_df, join_condition, how="left") \
+            .drop(F.col(f'del.{self.conventions.hkey_column_name()}')) \
+            .drop(F.col(f'del.{self.conventions.hdiff_column_name()}')) \
             .withColumn(
                 self.conventions.load_end_date_column_name(), 
-                F.when(F.col(self.conventions.deleted_column_name()) == True, F.col(f'r.{self.conventions.load_date_column_name()}')) \
+                F.when(F.col(self.conventions.deleted_column_name()) == True, F.col(f'del.{self.conventions.load_date_column_name()}')) \
                 .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
             .withColumn(
                 self.conventions.load_end_date_column_name(), 
                 F.when(F.isnull(self.conventions.load_end_date_column_name()), datetime.max) \
                 .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
-            .drop(F.col(f'r.{self.conventions.deleted_column_name()}')) \
-            .drop(F.col(f'r.{self.conventions.load_date_column_name()}')) \
+            .drop(F.col(f'del.{self.conventions.deleted_column_name()}')) \
+            .drop(F.col(f'del.{self.conventions.load_date_column_name()}')) \
             .write.mode('overwrite').saveAsTable(pit_table_name)
 
     def create_reference_table(self, name: str, id_column: ColumnDefinition, attribute_columns: List[ColumnDefinition]) -> None:
