@@ -1,4 +1,3 @@
-from traceback import print_tb
 from typing import Optional, Dict
 
 from pyspark.sql import DataFrame
@@ -32,8 +31,20 @@ class FieldDefinition:
 class TypelistsConfiguration:
 
     def __init__(
-        self, typelists: DataFrame, id_column: str = 'ID', 
-        typecode_column: str = 'typecode', name_column: str = 'name', de_column: str = 'L_de') -> None:
+        self, typelists: DataFrame, 
+        id_column: str = 'ID', 
+        typecode_column: str = 'typecode', 
+        name_column: str = 'name', 
+        de_column: str = 'L_de') -> None:
+        """
+        Configuration parameters for the typelist.
+
+        :param typelists - The DataFrame containing the typelists.
+        :param id_column - The name of the column that contains the typelist ID.
+        :param typecode_column - The name of the column that contains the typelist typecode.
+        :param name_column - The name of the column that contains the typelist name.
+        :param de_column - The name of the column that contains the typelist DE text.
+        """
 
         self.typelists = typelists
         self.id_column = id_column
@@ -45,6 +56,12 @@ class TypelistsConfiguration:
 class CuratedConfiguration(BusinessVaultConfiguration):
 
     def __init__(self, source_system_name: str, base_path: str) -> None:
+        """
+        Configuration parameters for the curated layer automation.
+
+        :param source_system_name - The (technical) name of the source system. This name is used for naming resources. The allowed pattern is [A-Z0-9_]{1,}.
+        """
+
         BusinessVaultConfiguration.__init__(self, source_system_name)
         self.base_path = base_path
         self.curated_database_name = f'{self.source_system_name}__curated'.lower()
@@ -53,11 +70,13 @@ class CuratedConfiguration(BusinessVaultConfiguration):
 class Curated:
 
     def __init__(
-        self, spark: SparkSession, config: CuratedConfiguration, 
-        business_vault: BusinessVault, typelists: TypelistsConfiguration,
+        self, spark: SparkSession, 
+        config: CuratedConfiguration, 
+        business_vault: BusinessVault, 
+        typelists: TypelistsConfiguration,
         conventions: DataVaultConventions = DataVaultConventions()) -> None:
+        
         self.spark = spark
-
         self.business_vault = business_vault
         self.config = config
         self.conventions = conventions
@@ -69,7 +88,6 @@ class Curated:
 
         :param df - The DataFrame to be filtered.
         """
-
         #
         # TODO mw: Should we check for dangling pointers/ related tables? Then this is much more complex!
         # e.g. in that case we could filter retired also while replacing with PublicID ...
@@ -96,7 +114,6 @@ class Curated:
 
         :param source_table_name - The name of the source table.
         """
-
         return source_table_name \
             .replace('cc_', '') \
             .replace('cctl_', '') \
@@ -109,7 +126,6 @@ class Curated:
         """
         Initializes the database if not already exiting.
         """
-
         self.spark.sql(f"""CREATE DATABASE IF NOT EXISTS {self.config.curated_database_name} LOCATION '{self.config.base_path}'""")
 
 
@@ -120,7 +136,6 @@ class Curated:
         :param df - The DataFrame to be joined with user tables.
         :param column - The UserID column.
         """
-
         if column is None:
             user_id_columns = list(filter(lambda c: c.endswith('UserID'), df.columns))
 
@@ -168,7 +183,6 @@ class Curated:
         :param typelist_reference_column - The column in the DataFrame that references the typelist.
         :param typelist_name - The name of the typelist.
         """
-
         en_column = f'{typelist_reference_column}_en'
         de_column = f'{typelist_reference_column}_de'
 
@@ -196,7 +210,6 @@ class Curated:
 
         :param fields - The list of FieldDefinitions to be mapped.
         """
-
         root_table_name = fields[0].from_table
         source_table_names = { f.from_table: self.get_entity_name_from_source_table_name(f.from_table) for f in fields }
         source_dataframes: Dict[str, DataFrame] = {}
@@ -252,8 +265,8 @@ class Curated:
                     .drop(source_dataframes[source_table][self.conventions.hkey_column_name()])
 
         # select all columns
-        # columns = list([source_dataframes[f.from_table][f.to_field_name] for f in fields])
-        # result = result.select(*columns)
+        columns = list([source_dataframes[f.from_table][f.to_field_name] for f in fields])
+        result = result.select(*columns)
 
         # resolve Typelists
         for field in fields:
@@ -287,7 +300,6 @@ class Curated:
         :param from_df_hkey - The HKEY column of the origin DataFrame.
         :param to_df_hkey - The HKEY column of the target DataFrame.
         """
-
         if from_df_hkey is None:
             from_df_hkey = from_df[self.conventions.hkey_column_name()]
 

@@ -1,250 +1,26 @@
 import pyspark.sql.functions as F
 
-from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from delta.tables import *
-from pyspark.sql import DataFrame, Column
+from pyspark.sql import DataFrame
 from pyspark.sql.types import BooleanType, DataType
 from pyspark.sql.session import SparkSession
 from pyspark.sql.types import StringType, StructField, StructType,TimestampType
-from typing import List, Optional, Union
 
-
-class DataVaultFunctions:
-
-    @staticmethod
-    def hash(column_names: List[str]) -> Column:
-        """
-        Calculates a MD5 hash of provided columns.
-
-        :param column_names - The columns which should be included in the hash.
-        """
-
-        columns = list(map(lambda c: F.col(c), column_names))
-        return F.md5(F.concat_ws(',', *columns))
-
-    @staticmethod
-    def to_columns(column_names: List[str]) -> List[Column]:
-        """"
-        Convert a list of column names to DataFrame columns.
-
-        :param column_names - The list if column names.
-        """
-        return list(map(lambda c: F.col(c), column_names))
-
-    @staticmethod
-    def to_timestamp(column_name: str = 'load_date', pattern: str = "yyyy-MM-dd'T'HH:mm:ss'Z'") -> Column:
-        """
-        Converts a date str of a format (pattern) to a timestamp column.
-
-        :param column_name - The column which contains the date string.
-        :param pattern - The (java.time) pattern of the date string.
-        """
-
-        return F.to_timestamp(F.col(column_name), pattern);
-
-
-class CDCOperations:
-
-    def __init__(self, snapshot = 0, delete = 1, create = 2, before_update = 3, update = 4):
-        self.SNAPSHOT = snapshot
-        self.DELETE = delete
-        self.CREATE = create
-        self.BEFORE_UPDATE = before_update
-        self.UPDATE = update
-
-
-class DataVaultConventions:
-
-    def __init__(
-        self,  column_prefix = '$__', hub = 'HUB__', link = 'LNK__', ref = 'REF__', sat = 'SAT__', pit = 'PIT__', effectivity = 'EFFECTIVTY_',
-        hkey = 'HKEY', hdiff = 'HDIFF', load_date = 'LOAD_DATE', load_end_date = 'LOAD_END_DATE', cdc_load_date = 'CDC_LOAD_DATE',
-        max_cdc_load_date = 'MAX_CDC_LOAD_DATE', record_source = 'RECORD_SOURCE', cdc_operation = 'OPERATION', deleted = 'DELETED', 
-        ref_group = 'GROUP', cdc_operations = CDCOperations()) -> None:
-        
-        self.COLUMN_PREFIX = column_prefix
-        self.HUB = hub
-        self.LINK = link
-        self.SAT = sat
-        self.REF = ref
-        self.PIT = pit
-        self.EFFECTIVTY = effectivity
-        self.HKEY = hkey
-        self.HDIFF = hdiff
-        self.LOAD_DATE = load_date
-        self.LOAD_END_DATE = load_end_date
-        self.CDC_LOAD_DATE = cdc_load_date
-        self.MAX_CDC_LOAD_DATE = max_cdc_load_date
-        self.RECORD_SOURCE = record_source
-        self.CDC_OPERATION = cdc_operation
-        self.DELETED = deleted
-        self.REF_GROUP = ref_group
-        self.CDC_OPERATIONS = cdc_operations
-
-    def deleted_column_name(self) -> str:
-        """
-        Return the column name of the deleted flag.
-        """
-        return f'{self.COLUMN_PREFIX}{self.DELETED}'
-
-    def cdc_operation_column_name(self) -> str:
-        """
-        Return the column name of the CDC operation (used in prepared staging tables).
-        """
-        return f'{self.COLUMN_PREFIX}{self.CDC_OPERATION}'
-
-    def hdiff_column_name(self) -> str:
-        """
-        Return the column name for HDIFF column including configured prefix.
-        """
-        return f'{self.COLUMN_PREFIX}{self.HDIFF}'
-
-    def hkey_column_name(self) -> str:
-        """
-        Return the column name for HKEY column including configured prefix.
-        """
-
-        return f'{self.COLUMN_PREFIX}{self.HKEY}'
-
-    def hub_name(self, source_table_name: str) -> str:
-        """
-        Returns a name of a HUB table, based on the base name. This method ensures, that the name is prefixed with the configured
-        hub prefix. If the prefix is already present, it will not be added.
-        """
-
-        source_table_name = source_table_name.upper()
-
-        if source_table_name.startswith(self.HUB):
-            return source_table_name
-        else:
-            return f'{self.HUB}{source_table_name}'
-
-    def link_name(self, name: str) -> str:
-        """
-        Returns a name of a LINK table, based on the base name. This method ensures, that the name is prefixed with the configured
-        hub prefix. If the prefix is already present, it will not be added.
-        """
-
-        name = name.upper()
-
-        if name.startswith(self.LINK):
-            return name
-        else:
-            return f'{self.LINK}{name}'
-
-    def load_date_column_name(self) -> str:
-        """
-        Return the column name for LOAD_DATE column including configured prefix.
-        """
-
-        return f'{self.COLUMN_PREFIX}{self.LOAD_DATE}'
-
-    def load_end_date_column_name(self) -> str:
-        """
-        Return the column name for LOAD_END_DATE column including configured prefix.
-        """
-
-        return f'{self.COLUMN_PREFIX}{self.LOAD_END_DATE}'
-
-    def cdc_load_date_column_name(self) -> str:
-        """
-        Return the column name for CDC_LOAD_DATE column including configured prefix.
-        """
-
-        return f'{self.COLUMN_PREFIX}{self.CDC_LOAD_DATE}'
-
-    def max_cdc_load_date_column_name(self) -> str:
-        """
-        Return the column name for MAX_CDC_LOAD_DATE column including configured prefix.
-        """
-
-        return f'{self.COLUMN_PREFIX}{self.MAX_CDC_LOAD_DATE}'
-
-    def record_source_column_name(self) -> str:
-        """
-        Return the column name for RECORD_SOURCE column including configured prefix.
-        """
-
-        return f'{self.COLUMN_PREFIX}{self.RECORD_SOURCE}'
-
-    def ref_group_column_name(self) -> str:
-        """
-        Returns the column name for group column of shared reference tables.
-        """
-        return f'{self.COLUMN_PREFIX}{self.REF_GROUP}'
-
-    def remove_prefix(self, name: str) -> str:
-        """
-        Return a table name without its prefix (e.g. 'HUB_FOO` will be transformed to 'FOO').
-        """
-
-        return name \
-            .replace(self.HUB, '') \
-            .replace(self.LINK, '') \
-            .replace(self.SAT, '') \
-            .replace(self.PIT, '')
-
-    def sat_name(self, name: str) -> str:
-        """
-        Returns a name of a SAT (satellite) table, based on the base name. This method ensures, that the name is prefixed with the configured
-        satellite prefix. If the prefix is already present, it will not be added.
-        """
-
-        name = name.upper()
-
-        if name.startswith(self.SAT):
-            return name
-        else:
-            return f'{self.SAT}{name}'
-
-    def sat_effectivity_name(self, name: str) -> str:
-        """
-        Returns a name of a effectivity SAT (satellite) table, based on the base name. This method ensures, that the name is prefixed with the configured
-        satellite prefix. If the prefix is already present, it will not be added.
-        """
-
-        name = name.upper()
-
-        if name.startswith(f'{self.SAT}{self.EFFECTIVTY}'):
-            return name
-        else:
-            return f'{self.SAT}{self.EFFECTIVTY}{name}'
-
-    def pit_name(self, name: str) -> str:
-        """
-        Returns a name of a PIT (point-in-time-table) table, based on the base name. This method ensures, that the name is prefixed with the configured
-        hub prefix. If the prefix is already present, it will not be added.
-        """
-
-        name = name.upper()
-
-        if name.startswith(self.PIT):
-            return name
-        else:
-            return f'{self.PIT}{name}'
-
-    def ref_name(self, name: str) -> str:
-        """
-        Returns a name of a REF (reference) table, base on the base name.  This method ensures, that the name is prefixed with the configured
-        reference prefix. If the prefix is already present, it will not be added.
-        """
-
-        name = name.upper()
-
-        if name.startswith(self.REF):
-            return name
-        else:
-            return f'{self.REF}{name}'
+from .DataVaultShared import *
 
 
 class RawVaultConfiguration:
 
     def __init__(
-        self, source_system_name: str, staging_base_path: str, staging_prepared_base_path: str, raw_base_path: str, 
-        staging_load_date_column_name: str, staging_cdc_operation_column_name: str,
+        self, source_system_name: str, 
+        staging_base_path: str, 
+        staging_prepared_base_path: str, 
+        raw_base_path: str, 
+        staging_load_date_column_name: str, 
+        staging_cdc_operation_column_name: str,
         snapshot_override_load_date_based_on_column: str) -> None:
-
         """
         Configuration parameters for the DataVault automation.
 
@@ -256,6 +32,7 @@ class RawVaultConfiguration:
         :param staging_cdc_operation_column_name - The name of the column which contains the CDC operation number.
         :param snapshot_override_load_date_based_on_column - In case of a snapshot, the load date might be overriden by the value of this column.
         """
+
         self.source_system_name = source_system_name
         self.staging_base_path = staging_base_path
         self.staging_prepared_base_path = staging_prepared_base_path
@@ -267,75 +44,6 @@ class RawVaultConfiguration:
 
         self.staging_prepared_database_name = f'{self.source_system_name}__staging_prepared'.lower()
         self.raw_database_name = f'{self.source_system_name}__raw'.lower()
-
-
-class ColumnDefinition:
-
-    def __init__(self, name: str, type: DataType, nullable: bool = False, comment: Optional[str] = None) -> None:
-        """
-        Value class to define a table column.
-        """
-
-        self.name = name
-        self.type = type
-        self.nullable = nullable
-        self.comment = comment
-
-
-class SatelliteDefinition:
-
-    def __init__(self, name: str, attributes: List[str]) -> None:
-        """
-        A definition how a setllite is derived. Please do not use this method directly. Use DataVault#create_satellite_definition.
-
-        :param name - The name of the satellite table in the raw vault.
-        :param attributes - The name of the columns/ attributes as in source table and satellite table.
-        """
-
-        self.name = name
-        self.attributes = attributes
-
-
-class ColumnReference:
-
-    def __init__(self, table: str, column: str) -> None:
-        """
-        Simple value class to describe a reference to a column.
-
-        :param table - The name of the table the column belongs to.
-        :üaram column - The name of the column.
-        """
-        self.table = table
-        self.column = column
-
-
-class ForeignKey:
-
-    def __init__(self, column: str, to: ColumnReference) -> None:
-        """
-        Simple value class to describe a foreign key constraint.
-
-        :param column - The name of the column which points to a foreign table/ column.
-        :param to - The reference to the foreign column.
-        """
-
-        self.column = column
-        self.to = to
-
-
-class LinkedHubDefinition:
-
-    def __init__(self, name: str, hkey_column_name: str, foreign_key: ForeignKey) -> None:
-        """
-        A value class to specify a linked hub of a Link table.
-
-        :param name - The base name of the hub.
-        :param hkey_column_name - The name of the column in the link table.
-        :param foreign_key - The foreign key from the Links staging table to the staging table of the linked hub.
-        """
-        self.name = name
-        self.hkey_column_name = hkey_column_name
-        self.foreign_key = foreign_key
 
 
 class RawVault:
@@ -356,7 +64,6 @@ class RawVault:
         :param name - The name of the hub table, usually starting with `HUB__`.
         :param business_key_columns - The columns for the hub are the keys which compose the business key. Tuple contains (name, type).
         """
-
         columns: List[ColumnDefinition] = [
             ColumnDefinition(self.conventions.hkey_column_name(), StringType()), # TODO mw: Add comments to column
             ColumnDefinition(self.conventions.load_date_column_name(), TimestampType()),
@@ -374,7 +81,6 @@ class RawVault:
         :param name - The name of the link table, usually starting with `LNK__`.
         :param column_names - The name of the columns which containg hash keys pointing to other hubs.
         """
-
         columns: List[ColumnDefinition] = [
             ColumnDefinition(self.conventions.hkey_column_name(), StringType()), # TODO mw: Add comments to column
             ColumnDefinition(self.conventions.load_date_column_name(), TimestampType()),
@@ -385,77 +91,6 @@ class RawVault:
 
         self.create_effectivity_satellite(self.conventions.sat_effectivity_name(name))
 
-    def create_point_in_time_table_for_single_satellite(self, pit_name: str, satellite_name: str) -> None:
-        """
-        Creates a point-in-time-table for a single satellite by adding a calculated load end date column.
-
-        :param satellite_name - The name of the satellite from which the PIT is derived.
-        """
-        sat_table_name = f'{self.config.raw_database_name}.{self.conventions.sat_name(satellite_name)}'
-        sat_effectivity_table_name = f'{self.config.raw_database_name}.{self.conventions.sat_effectivity_name(satellite_name)}'
-        pit_table_name = f'{self.config.raw_database_name}.{self.conventions.pit_name(pit_name)}'
-
-        sat_effectivity_df = self.spark.table(sat_effectivity_table_name)
-        sat_df = self.spark.table(sat_table_name)
-        
-        join_condition = [
-            (F.col(f'l.{self.conventions.hkey_column_name()}') == F.col(f'r.{self.conventions.hkey_column_name()}')) &
-            (F.col(f'l.{self.conventions.load_date_column_name()}') < F.col(f'r.{self.conventions.load_date_column_name()}'))
-        ]
-
-        pit_df = sat_df.alias('l') \
-            .join(sat_df.alias('r'), join_condition, how='left') \
-            .select(
-                F.col(f'l.{self.conventions.hkey_column_name()}'), 
-                F.col(f'l.{self.conventions.load_date_column_name()}'),
-                F.col(f'r.{self.conventions.load_date_column_name()}').alias(self.conventions.load_end_date_column_name())) \
-            .groupBy(
-                F.col(self.conventions.hkey_column_name()),
-                F.col(self.conventions.load_date_column_name())) \
-            .agg(F.min(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name())) \
-            .orderBy([F.col(f'l.{self.conventions.hkey_column_name()}'), F.col(f'l.{self.conventions.load_date_column_name()}')])
-
-        sat_effectivity_df = sat_effectivity_df.alias('del') \
-            .orderBy([self.conventions.hkey_column_name(), self.conventions.load_date_column_name()]) \
-            .filter(F.col(self.conventions.deleted_column_name()) == True)
-
-        # join in the following cases:
-        # - delete_date is between load_date and load_end_date
-        # - delete date is larger than load_date and no load_end_date is set
-        join_condition = [
-            (
-                (
-                    (F.col(f'l.{self.conventions.hkey_column_name()}') == F.col(f'del.{self.conventions.hkey_column_name()}')) &
-                    (F.col(f'l.{self.conventions.load_date_column_name()}') < F.col(f'del.{self.conventions.load_date_column_name()}')) &
-                    (F.col(self.conventions.load_end_date_column_name()) > F.col(f'del.{self.conventions.load_date_column_name()}'))
-                ) |
-                (
-                    (F.col(f'l.{self.conventions.hkey_column_name()}') == F.col(f'del.{self.conventions.hkey_column_name()}')) &
-                    (F.col(f'l.{self.conventions.load_date_column_name()}') < F.col(f'del.{self.conventions.load_date_column_name()}')) &
-                    (F.col(self.conventions.load_end_date_column_name()).isNull())
-                )
-            )
-        ]
-        
-        # join with effectivity satellite to extract deleted flag 
-        # -> set load_end_date if deleted is true
-        # -> set load_end_date to datetime.max if load_end_date is NULL
-        pit_df = pit_df \
-            .join(sat_effectivity_df, join_condition, how="left") \
-            .drop(F.col(f'del.{self.conventions.hkey_column_name()}')) \
-            .drop(F.col(f'del.{self.conventions.hdiff_column_name()}')) \
-            .withColumn(
-                self.conventions.load_end_date_column_name(), 
-                F.when(F.col(self.conventions.deleted_column_name()) == True, F.col(f'del.{self.conventions.load_date_column_name()}')) \
-                .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
-            .withColumn(
-                self.conventions.load_end_date_column_name(), 
-                F.when(F.isnull(self.conventions.load_end_date_column_name()), datetime.max) \
-                .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
-            .drop(F.col(f'del.{self.conventions.deleted_column_name()}')) \
-            .drop(F.col(f'del.{self.conventions.load_date_column_name()}')) \
-            .write.mode('overwrite').saveAsTable(pit_table_name)
-
     def create_reference_table(self, name: str, id_column: ColumnDefinition, attribute_columns: List[ColumnDefinition]) -> None:
         """
         Creates a reference table in the raw vault. Does only create the table if it does not exist yet.
@@ -464,7 +99,6 @@ class RawVault:
         :param id_column - The definition of the column which is used as a key for the reference table.
         :param attribute_columns - The attributes which should be stored in the reference table.
         """
-
         columns: List[ColumnDefinition] = [
             ColumnDefinition(self.conventions.hdiff_column_name(), StringType()),
             ColumnDefinition(self.conventions.load_date_column_name(), TimestampType()),
@@ -482,7 +116,6 @@ class RawVault:
         :param id_column - The definition of the column which is used as a key for the reference table.
         :param attribute_columns - The attributes which should be stored in the reference table.
         """
-
         columns: List[ColumnDefinition] = [
             ColumnDefinition(self.conventions.ref_group_column_name(), StringType()),
             ColumnDefinition(self.conventions.hdiff_column_name(), StringType()),
@@ -499,7 +132,6 @@ class RawVault:
         :param name - The name of the satellite table, usually starting with `SAT__`.
         :param attribute_columns - The attributes which should be stored in the satellite.
         """
-
         columns: List[ColumnDefinition] = [
             ColumnDefinition(self.conventions.hkey_column_name(), StringType()), # TODO mw: Add comments to column
             ColumnDefinition(self.conventions.hdiff_column_name(), StringType()),
@@ -515,7 +147,6 @@ class RawVault:
 
         :param name - The name of the satellite table, usually starting with `SAT__`.
         """
-
         columns: List[ColumnDefinition] = [
             ColumnDefinition(self.conventions.hkey_column_name(), StringType()), # TODO mw: Add comments to column
             ColumnDefinition(self.conventions.hdiff_column_name(), StringType()),
@@ -529,7 +160,6 @@ class RawVault:
         """
         Initialize database.
         """
-
         self.spark.sql(f"""CREATE DATABASE IF NOT EXISTS {self.config.staging_prepared_database_name} LOCATION '{self.config.staging_prepared_base_path}'""")
         self.spark.sql(f"""CREATE DATABASE IF NOT EXISTS {self.config.raw_database_name} LOCATION '{self.config.raw_base_path}'""")
 
@@ -542,7 +172,6 @@ class RawVault:
         :param business_key_column_names - The list of columns which contribute to the business key of the hub.
         :param satellites - Optional. A list of satellites which is loaded from the prepared staging table. The form of the tuple is.
         """
-
         sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(hub_table_name))
         sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
         hub_table_name = self.conventions.hub_name(hub_table_name)
@@ -594,7 +223,6 @@ class RawVault:
         :param from_hkey_column_name - The name of the column pointing to the origin of the link in the link table.
         :param to_hkey_column_name - The name of the column pointing to the target of the link in the link table.
         """
-
         sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
         sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
         link_table_name = self.conventions.link_name(link_table_name)
@@ -650,10 +278,10 @@ class RawVault:
             .write.mode('append').saveAsTable(link_table_name)
 
         update_df = staged_from_df \
-            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPERATIONS.UPDATE)
+            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.UPDATE)
 
         before_update_df = staged_from_df \
-            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPERATIONS.BEFORE_UPDATE)
+            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.BEFORE_UPDATE)
 
         join_condition = [update_df[from_hkey_column_name] == before_update_df[from_hkey_column_name]]
         # covers the following cases:
@@ -670,13 +298,13 @@ class RawVault:
             .join(before_update_df.alias('r'), join_condition) \
             .filter((F.col(f'l.{from_staging_foreign_key.column}').isNull()) & (F.col(f'r.{from_staging_foreign_key.column}').isNotNull())) \
             .select("r.*") \
-            .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPERATIONS.DELETE)) \
+            .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.DELETE)) \
             .union(
                 update_df.alias('l') \
                     .join(before_update_df.alias('r'), join_condition) \
                     .filter((F.col(f'l.{from_staging_foreign_key.column}').isNotNull()) & (F.col(f'r.{from_staging_foreign_key.column}').isNull())) \
                     .select("l.*") \
-                    .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPERATIONS.CREATE))
+                    .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.CREATE))
             ) \
             .union(
                 update_df.alias('l') \
@@ -687,7 +315,7 @@ class RawVault:
                         (F.col(f'l.{from_staging_foreign_key.column}') != F.col(f'r.{from_staging_foreign_key.column}'))
                     ) \
                     .select("l.*") \
-                    .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPERATIONS.CREATE))
+                    .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.CREATE))
             ) \
             .union(
                 update_df.alias('l') \
@@ -698,13 +326,13 @@ class RawVault:
                         (F.col(f'l.{from_staging_foreign_key.column}') != F.col(f'r.{from_staging_foreign_key.column}'))
                     ) \
                     .select("r.*") \
-                    .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPERATIONS.DELETE))
+                    .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.DELETE))
             ) \
             .union(
                 staged_from_df \
                     .filter(
-                        (staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPERATIONS.CREATE) |
-                        (staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPERATIONS.SNAPSHOT)
+                        (staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.CREATE) |
+                        (staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.SNAPSHOT)
                     )
             )
 
@@ -736,7 +364,6 @@ class RawVault:
         :param link_table_name - The name of the link table in the raw vault.
         :param satellites - Definitions of the satellites for the link.
         """
-
         sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
         sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
         link_table_name = self.conventions.link_name(link_table_name)
@@ -791,7 +418,6 @@ class RawVault:
         :param id_column - The name of the column holding the id of the reference.
         :param attributes - The list of attributes which are stored in the reference table.
         """
-
         columns = [id_column, self.conventions.hdiff_column_name(), self.conventions.load_date_column_name()] + attributes
 
         reference_table_name = self.conventions.ref_name(reference_table_name)
@@ -820,7 +446,6 @@ class RawVault:
         :param id_column - The name of the column holding the id of the reference.
         :param attributes - The list of attributes which are stored in the reference table.
         """
-
         columns = [self.conventions.ref_group_column_name(), id_column, self.conventions.hdiff_column_name(), self.conventions.load_date_column_name()] + attributes
 
         reference_table_name = self.conventions.ref_name(reference_table_name)
@@ -848,13 +473,12 @@ class RawVault:
         :param staged_df - The dataframe which contains the staged and prepared data for the satellite.
         :param satellite - The satellite definition.
         """
-
         sat_table_name = f'{self.config.raw_database_name}.{satellite.name}'
         sat_df = self.spark.table(sat_table_name)
 
         allowed_cdc_operations = [
-            self.conventions.CDC_OPERATIONS.CREATE, self.conventions.CDC_OPERATIONS.UPDATE, 
-            self.conventions.CDC_OPERATIONS.SNAPSHOT
+            self.conventions.CDC_OPS.CREATE, self.conventions.CDC_OPS.UPDATE, 
+            self.conventions.CDC_OPS.SNAPSHOT
         ]
 
         columns = [
@@ -884,12 +508,11 @@ class RawVault:
         :param staged_df - The dataframe which contains the staged and prepared data for the satellite.
         :param satellite - The satellite definition.
         """
-
         sat_effectivity_df = self.spark.table(sat_effectivity_table_name)
         
         allowed_cdc_operations = [
-            self.conventions.CDC_OPERATIONS.CREATE, self.conventions.CDC_OPERATIONS.DELETE, 
-            self.conventions.CDC_OPERATIONS.SNAPSHOT
+            self.conventions.CDC_OPS.CREATE, self.conventions.CDC_OPS.DELETE, 
+            self.conventions.CDC_OPS.SNAPSHOT
         ]
 
         columns = [
@@ -923,7 +546,6 @@ class RawVault:
         :param source - The source file path, relative to staging_base_path (w/o leading slash).
         :param hkey_columns - Optional. Column names which should be used to calculate a hash key.
         """
-
         # load source data from Parquet file.
         df = self.spark.read.load(f'{self.config.staging_base_path}/{source}', format='parquet')
 
@@ -953,7 +575,6 @@ class RawVault:
         :param name - The name of the table which should be created.
         :param columns - Column definitions for the tables.
         """
-
         schema = StructType([ StructField(c.name, c.type, c.nullable) for c in columns ])
         df: DataFrame = self.spark.createDataFrame([], schema)
         df.write.mode('ignore').saveAsTable(f'{database}.{name}')

@@ -1,8 +1,10 @@
 import pyspark.sql.functions as F
 
+from datetime import datetime
+from typing import List, Optional, Union
+
 from pyspark.sql import DataFrame, Column
 from pyspark.sql.session import SparkSession
-from typing import List, Optional, Union
 
 from .DataVaultShared import *
 
@@ -10,16 +12,97 @@ from .DataVaultShared import *
 class BusinessVaultConfiguration:
 
     def __init__(self, source_system_name: str) -> None:
+        """
+        Configuration parameters for the BusinessVault automation.
+
+        :param source_system_name - The (technical) name of the source system. This name is used for naming resources. The allowed pattern is [A-Z0-9_]{1,}.
+        """
         self.source_system_name = source_system_name
         self.raw_database_name = f'{self.source_system_name}__raw'.lower()
 
 
 class BusinessVault:
+    """
+    TODO jb: Explain rough process and how method
+
+    """
 
     def __init__(self, spark: SparkSession, config: BusinessVaultConfiguration, conventions: DataVaultConventions = DataVaultConventions()) -> None:
         self.spark = spark
         self.config = config
         self.conventions = conventions
+
+    def create_point_in_time_table_for_single_satellite(self, pit_name: str, satellite_name: str) -> None:
+        """
+        Creates a point-in-time-table for a single satellite by adding a calculated load end date column.
+
+        :param satellite_name - The name of the satellite from which the PIT is derived.
+        """
+        sat_table_name = f'{self.config.raw_database_name}.{self.conventions.sat_name(satellite_name)}'
+        sat_effectivity_table_name = f'{self.config.raw_database_name}.{self.conventions.sat_effectivity_name(satellite_name)}'
+        pit_table_name = f'{self.config.raw_database_name}.{self.conventions.pit_name(pit_name)}'
+
+        sat_effectivity_df = self.spark.table(sat_effectivity_table_name)
+        sat_df = self.spark.table(sat_table_name)
+        
+        join_condition = [
+            (F.col(f'l.{self.conventions.hkey_column_name()}') == F.col(f'r.{self.conventions.hkey_column_name()}')) &
+            (F.col(f'l.{self.conventions.load_date_column_name()}') < F.col(f'r.{self.conventions.load_date_column_name()}'))
+        ]
+
+        pit_df = sat_df.alias('l') \
+            .join(sat_df.alias('r'), join_condition, how='left') \
+            .select(
+                F.col(f'l.{self.conventions.hkey_column_name()}'), 
+                F.col(f'l.{self.conventions.load_date_column_name()}'),
+                F.col(f'r.{self.conventions.load_date_column_name()}').alias(self.conventions.load_end_date_column_name())) \
+            .groupBy(
+                F.col(self.conventions.hkey_column_name()),
+                F.col(self.conventions.load_date_column_name())) \
+            .agg(F.min(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name())) \
+            .orderBy([F.col(f'l.{self.conventions.hkey_column_name()}'), F.col(f'l.{self.conventions.load_date_column_name()}')])
+
+        sat_effectivity_df = sat_effectivity_df.alias('del') \
+            .orderBy([self.conventions.hkey_column_name(), self.conventions.load_date_column_name()]) \
+            .filter(F.col(self.conventions.deleted_column_name()) == True)
+
+        # join in the following cases:
+        # - delete_date is between load_date and load_end_date
+        # - delete date is larger than load_date and no load_end_date is set
+        join_condition = [
+            (
+                (
+                    (F.col(f'l.{self.conventions.hkey_column_name()}') == F.col(f'del.{self.conventions.hkey_column_name()}')) &
+                    (F.col(f'l.{self.conventions.load_date_column_name()}') < F.col(f'del.{self.conventions.load_date_column_name()}')) &
+                    (F.col(self.conventions.load_end_date_column_name()) > F.col(f'del.{self.conventions.load_date_column_name()}'))
+                ) |
+                (
+                    (F.col(f'l.{self.conventions.hkey_column_name()}') == F.col(f'del.{self.conventions.hkey_column_name()}')) &
+                    (F.col(f'l.{self.conventions.load_date_column_name()}') < F.col(f'del.{self.conventions.load_date_column_name()}')) &
+                    (F.col(self.conventions.load_end_date_column_name()).isNull())
+                )
+            )
+        ]
+        
+        # join with effectivity satellite to extract deleted flag 
+        # -> set load_end_date if deleted is true
+        # -> set load_end_date to datetime.max if load_end_date is NULL
+        pit_df = pit_df \
+            .join(sat_effectivity_df, join_condition, how="left") \
+            .drop(F.col(f'del.{self.conventions.hkey_column_name()}')) \
+            .drop(F.col(f'del.{self.conventions.hdiff_column_name()}')) \
+            .withColumn(
+                self.conventions.load_end_date_column_name(), 
+                F.when(F.col(self.conventions.deleted_column_name()) == True, F.col(f'del.{self.conventions.load_date_column_name()}')) \
+                .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
+            .withColumn(
+                self.conventions.load_end_date_column_name(), 
+                F.when(F.isnull(self.conventions.load_end_date_column_name()), datetime.max) \
+                .otherwise(F.col(self.conventions.load_end_date_column_name()))) \
+            .drop(F.col(f'del.{self.conventions.deleted_column_name()}')) \
+            .drop(F.col(f'del.{self.conventions.load_date_column_name()}')) \
+            .write.mode('overwrite').saveAsTable(pit_table_name)
+
 
     def create_active_code_reference_table(self, ref_table_name: str, ref_active_table_name, id_column: str) -> None:
         """
@@ -29,7 +112,6 @@ class BusinessVault:
         :param ref_active_table_name - The name of the reference table to be created.
         :param id_column - The name of the column that contains the reference ID.
         """
-
         df_ref = self.spark.table(f"`{self.config.raw_database_name}`.`{ref_table_name}`")
 
         df_ref_left = df_ref \
@@ -49,7 +131,6 @@ class BusinessVault:
         """
         Initializes the database if not already exiting.
         """
-
         self.spark.sql(f"""CREATE DATABASE IF NOT EXISTS {self.config.raw_database_name} LOCATION '{self.config.raw_base_path}'""")
 
     def read_data_from_hub_sat_and_pit(self, hub_name: str, sat_name: str, pit_name: str, attributes: List[str], include_hkey: bool = False) -> DataFrame:
@@ -63,7 +144,6 @@ class BusinessVault:
         :param attributes - The attributes that should be contained in the output DataFrame.
         :param include_hkey - Defines whether the HKEY attribute is contained in the output DataFrame or not.
         """
-
         df_pit = self.spark.table(f"`{self.config.raw_database_name}`.`{pit_name}`")
         df_sat = self.spark.table(f"`{self.config.raw_database_name}`.`{sat_name}`")
         df_hub = self.spark.table(f"`{self.config.raw_database_name}`.`{hub_name}`")
@@ -97,7 +177,6 @@ class BusinessVault:
         :param attributes - The attributes that should be contained in the output DataFrame.
         :param include_hkey - Defines whether the HKEY attribute is contained in the output DataFrame or not.
         """
-
         name = self.conventions.remove_prefix(name)
 
         hub_name = self.conventions.hub_name(name)
@@ -127,7 +206,6 @@ class BusinessVault:
         :param load_end_date_column - The LOAD_END_DATE column of the joined DataFrame.
         :param include_hkey - Defines whether the HKEY attribute is contained in the output DataFrame or not.
         """
-
         if left_load_date_column is None:
             left_load_date_column = left[self.conventions.load_date_column_name()]
 
@@ -190,7 +268,6 @@ class BusinessVault:
         :param to_attributes - The attributes of the linked target hub that should be contained in the output DataFrame.
         :param include_hkeys - Defines whether the HKEY attribute is contained in the output DataFrame or not.
         """
-
         from_df = self.read_data_from_hub(from_name, from_attributes, True)
         to_df = self.read_data_from_hub(to_name, to_attributes, True)
 
@@ -230,7 +307,6 @@ class BusinessVault:
         :param load_end_date_column - The LOAD_END_DATE column of the joined DataFrame.
         :param include_hkeys - Defines whether the HKEY attribute is contained in the output DataFrame or not.
         """
-
         if from_df_hkey is None:
             from_df_hkey = from_df[self.conventions.hkey_column_name()]
 
