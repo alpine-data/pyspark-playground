@@ -354,6 +354,8 @@ class BusinessVault:
 
         attribute_columns = hub_attributes + sat_attributes
 
+        # TODO mw: Aggregation won't work for not overlapping.
+
         return df_pit \
             .join(df_sat, (
                 (df_pit[self.conventions.hkey_column_name()] == df_sat[self.conventions.hkey_column_name()]) & \
@@ -672,8 +674,7 @@ class Curated:
         for field in fields:
             if field.foreign_key:
                 linked_entity = self.get_entity_name_from_source_table_name(field.foreign_key_to_table_name)
-                linked_hub = self.conventions.hub_name(linked_entity)
-                linked_hub = self.business_vault.read_data_from_hub(source_table_names[source_table], ['PublicID'], True)
+                linked_hub = self.business_vault.read_data_from_hub(linked_entity, ['PublicID'], True)
 
                 lnk_name = f'LNK__{source_table_names[field.from_table]}__{linked_entity}'
                 lnk_from_hkey = f"{source_table_names[field.from_table]}_HKEY"

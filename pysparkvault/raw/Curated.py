@@ -265,7 +265,7 @@ class Curated:
                     .drop(source_dataframes[source_table][self.conventions.hkey_column_name()])
 
         # select all columns
-        columns = list([source_dataframes[f.from_table][f.to_field_name] for f in fields])
+        columns = list([source_dataframes[f.from_table][f.to_field_name] for f in fields]) + [self.conventions.load_date_column_name(), self.conventions.load_end_date_column_name()]
         result = result.select(*columns)
 
         # resolve Typelists
