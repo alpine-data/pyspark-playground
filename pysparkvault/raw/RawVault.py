@@ -208,7 +208,6 @@ class RawVault:
     def load_link_for_linked_source_tables_from_prepared_staging_tables(
         self, 
         from_staging_table_name: str,
-        to_table_name: str,
         from_staging_foreign_key: ForeignKey, 
         link_table_name: str,
         from_hkey_column_name: str,
@@ -217,7 +216,6 @@ class RawVault:
         Loads a link for two linked source tables based on the prepared staging tables.
 
         :param from_staging_table_name - The name of the staging table which contains a foreign key to another entity.
-        :param to_table_name - The base name of the referenced hub table.
         :param from_staging_foreign_key - The foreign key constraint of the source/ staging table which points to the other entity.
         :param link_table_name - The name of the link table in the raw vault.
         :param from_hkey_column_name - The name of the column pointing to the origin of the link in the link table.
@@ -227,9 +225,9 @@ class RawVault:
         sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
         link_table_name = self.conventions.link_name(link_table_name)
         link_table_name = f'{self.config.raw_database_name}.{link_table_name}'
-        hub_table_name = self.conventions.hub_name(to_table_name)
+        hub_table_name = self.conventions.hub_name(from_staging_foreign_key.to.table)
         hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
-        sat_table_name = self.conventions.sat_name(to_table_name)
+        sat_table_name = self.conventions.sat_name(from_staging_foreign_key.to.table)
         sat_table_name = f'{self.config.raw_database_name}.{sat_table_name}'
         
         link_df = self.spark.table(link_table_name)
