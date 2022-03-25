@@ -227,8 +227,10 @@ class RawVault:
         link_table_name = f'{self.config.raw_database_name}.{link_table_name}'
         hub_table_name = self.conventions.hub_name(from_staging_foreign_key.to.table)
         hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
+        hub_table_name = self.conventions.remove_source_prefix(hub_table_name)
         sat_table_name = self.conventions.sat_name(from_staging_foreign_key.to.table)
         sat_table_name = f'{self.config.raw_database_name}.{sat_table_name}'
+        sat_table_name = self.conventions.remove_source_prefix(sat_table_name)
         
         link_df = self.spark.table(link_table_name)
         hub_df = self.spark.table(hub_table_name)
@@ -371,8 +373,10 @@ class RawVault:
         link_df = self.spark.table(link_table_name)
         
         for link in links:
-            hub_df = self.spark.table(f'{self.config.raw_database_name}.{self.conventions.hub_name(link.name)}')
-            sat_df = self.spark.table(f'{self.config.raw_database_name}.{self.conventions.sat_name(link.name)}') \
+            hub_table_name = f'{self.config.raw_database_name}.{self.conventions.remove_source_prefix(self.conventions.hub_name(link.name))}'
+            hub_df = self.spark.table(hub_table_name)
+            sat_table_name = f'{self.config.raw_database_name}.{self.conventions.remove_source_prefix(self.conventions.sat_name(link.name))}'
+            sat_df = self.spark.table(sat_table_name) \
                 .select([self.conventions.hkey_column_name(), link.foreign_key.to.column])
 
             join_condition = hub_df[self.conventions.hkey_column_name()] == sat_df[self.conventions.hkey_column_name()]

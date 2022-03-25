@@ -235,6 +235,15 @@ class DataVaultConventions:
         else:
             return f'{self.REF}{name}'
 
+    def remove_source_prefix(name: str):
+        """
+        Return a table name without its source prefix.
+        """
+        return name \
+            .replace("CC_", "") \
+            .replace("CCX_", "") \
+            .replace("ALG_", "")
+
     def remove_prefix(self, name: str) -> str:
         """
         Return a table name without its prefix (e.g. 'HUB_FOO` will be transformed to 'FOO').
