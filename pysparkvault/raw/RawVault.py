@@ -72,7 +72,7 @@ class RawVault:
 
         self.__create_external_table(self.config.raw_database_name, self.conventions.hub_name(name), columns)
 
-        self.create_effectivity_satellite(self.conventions.sat_effectivity_name(name))
+        self.create_effectivity_satellite(self.conventions.sat_effectivity_name(self.conventions.remove_prefix(name)))
 
     def create_link(self, name: str, column_names: List[str]) -> None: # TODO MW: Specify whether Link is History/ Transaction
         """
@@ -89,7 +89,7 @@ class RawVault:
 
         self.__create_external_table(self.config.raw_database_name, self.conventions.link_name(name), columns)
 
-        self.create_effectivity_satellite(self.conventions.sat_effectivity_name(name))
+        self.create_effectivity_satellite(self.conventions.sat_effectivity_name(self.conventions.remove_prefix(name)))
 
     def create_reference_table(self, name: str, id_column: ColumnDefinition, attribute_columns: List[ColumnDefinition]) -> None:
         """
