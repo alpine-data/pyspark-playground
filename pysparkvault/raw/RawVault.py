@@ -199,6 +199,7 @@ class RawVault:
         ] + business_key_column_names
 
         join_condition = hub_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()]
+
         staged_df \
             .join(hub_df, join_condition, how='left_anti') \
             .select(columns) \
@@ -223,27 +224,19 @@ class RawVault:
         """
         sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
         sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
+
         link_table_name = self.conventions.link_name(link_table_name)
         link_table_name = f'{self.config.raw_database_name}.{link_table_name}'
+
         hub_table_name = self.conventions.hub_name(from_staging_foreign_key.to.table)
         hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
         hub_table_name = self.conventions.remove_source_prefix(hub_table_name)
-        sat_table_name = self.conventions.sat_name(from_staging_foreign_key.to.table)
-        sat_table_name = f'{self.config.raw_database_name}.{sat_table_name}'
-        sat_table_name = self.conventions.remove_source_prefix(sat_table_name)
         
         link_df = self.spark.table(link_table_name)
-        hub_df = self.spark.table(hub_table_name)
-        sat_df = self.spark.table(sat_table_name) \
-            .select([self.conventions.hkey_column_name(), from_staging_foreign_key.to.column])
 
-        join_condition = hub_df[self.conventions.hkey_column_name()] == sat_df[self.conventions.hkey_column_name()]
-        staged_to_df = hub_df \
-            .join(sat_df, join_condition, how="left") \
-            .drop(sat_df[self.conventions.hkey_column_name()]) \
+        hub_df = self.spark.table(hub_table_name) \
             .withColumnRenamed(self.conventions.hkey_column_name(), to_hkey_column_name) \
             .select([from_staging_foreign_key.to.column, to_hkey_column_name]) \
-            .distinct()
 
         columns = [
             from_staging_foreign_key.column, from_hkey_column_name, 
@@ -259,10 +252,10 @@ class RawVault:
             self.conventions.record_source_column_name(), from_hkey_column_name, to_hkey_column_name
         ]
 
-        join_condition = staged_from_df[from_staging_foreign_key.column] == staged_to_df[from_staging_foreign_key.to.column]
+        join_condition = staged_from_df[from_staging_foreign_key.column] == hub_df[from_staging_foreign_key.to.column]
         current_timestamp = F.current_timestamp()
         joined_df = staged_from_df \
-            .join(staged_to_df, join_condition) \
+            .join(hub_df, join_condition) \
             .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
             .withColumn(self.conventions.load_date_column_name(), current_timestamp) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
@@ -342,9 +335,9 @@ class RawVault:
             self.conventions.cdc_load_date_column_name(), from_hkey_column_name, to_hkey_column_name
         ]
 
-        join_condition = joined_df[from_staging_foreign_key.column] == staged_to_df[from_staging_foreign_key.to.column]
+        join_condition = joined_df[from_staging_foreign_key.column] == hub_df[from_staging_foreign_key.to.column]
         joined_df = joined_df \
-            .join(staged_to_df, join_condition, how="left") \
+            .join(hub_df, join_condition, how="left") \
             .withColumnRenamed(self.conventions.load_date_column_name(), self.conventions.cdc_load_date_column_name()) \
             .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
             .withColumn(self.conventions.load_date_column_name(), current_timestamp) \
@@ -364,8 +357,10 @@ class RawVault:
         :param link_table_name - The name of the link table in the raw vault.
         :param satellites - Definitions of the satellites for the link.
         """
+
         sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
         sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
+        
         link_table_name = self.conventions.link_name(link_table_name)
         link_table_name = f'{self.config.raw_database_name}.{link_table_name}'
 
@@ -374,22 +369,14 @@ class RawVault:
         
         for link in links:
             hub_table_name = f'{self.config.raw_database_name}.{self.conventions.remove_source_prefix(self.conventions.hub_name(link.name))}'
-            hub_df = self.spark.table(hub_table_name)
-            sat_table_name = f'{self.config.raw_database_name}.{self.conventions.remove_source_prefix(self.conventions.sat_name(link.name))}'
-            sat_df = self.spark.table(sat_table_name) \
-                .select([self.conventions.hkey_column_name(), link.foreign_key.to.column])
-
-            join_condition = hub_df[self.conventions.hkey_column_name()] == sat_df[self.conventions.hkey_column_name()]
-            joined_df = hub_df \
-                .join(sat_df, join_condition, how="left") \
-                .drop(sat_df[self.conventions.hkey_column_name()]) \
+            hub_df = self.spark.table(hub_table_name) \
                 .withColumnRenamed(self.conventions.hkey_column_name(), link.hkey_column_name) \
-                .select([link.foreign_key.to.column, link.hkey_column_name]) \
-                .distinct()
+                .select([link.foreign_key.to.column, link.hkey_column_name])
 
-            join_condition = joined_df[link.foreign_key.to.column] == staged_df[link.foreign_key.column]
+            join_condition = hub_df[link.foreign_key.to.column] == staged_df[link.foreign_key.column]
             staged_df = staged_df \
-                .join(joined_df, join_condition, how='left')
+                .join(hub_df, join_condition, how='left') \
+                .drop(hub_df[link.foreign_key.to.column]) \
 
         staged_df = staged_df \
             .withColumnRenamed(self.conventions.load_date_column_name(), self.conventions.cdc_load_date_column_name()) \

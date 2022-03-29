@@ -31,9 +31,9 @@ TYPELISTS_ACTIVE_TABLE_NAME = 'TYPELIST__ACTIVE'
 
 LINK_TABLE_NAME_MOVIES_DIRECTORS = f"{SOURCE_TABLE_NAME_MOVIES}__{SOURCE_TABLE_NAME_DIRECTORS}"
 
-HKEY_COLUMNS_MOVIES = ["NAME", "YEAR"]
-HKEY_COLUMNS_ACTORS = ["NAME"]
-HKEY_COLUMNS_DIRECTORS = ["NAME"]
+HKEY_COLUMNS_MOVIES = ["PublicID"]
+HKEY_COLUMNS_ACTORS = ["PublicID"]
+HKEY_COLUMNS_DIRECTORS = ["PublicID"]
 HKEY_COLUMNS_CASTINGS = ["MOVIE_ID", "ACTOR_ID"]
 
 DV_CONV = DataVaultConventions()
@@ -285,16 +285,15 @@ def create_data_vault_tables(raw_vault: RawVault) -> None:
 
     # create hubs
     raw_vault.create_hub(SOURCE_TABLE_NAME_MOVIES, [
-        ColumnDefinition("NAME", StringType()),
-        ColumnDefinition("YEAR", IntegerType())
+        ColumnDefinition("PublicID", StringType())
     ])
 
     raw_vault.create_hub(SOURCE_TABLE_NAME_ACTORS, [
-        ColumnDefinition("NAME", StringType()),
+        ColumnDefinition("PublicID", StringType())
     ])
 
     raw_vault.create_hub(SOURCE_TABLE_NAME_DIRECTORS, [
-        ColumnDefinition("NAME", StringType()),
+        ColumnDefinition("PublicID", StringType())
     ])
 
     # create links
@@ -305,18 +304,20 @@ def create_data_vault_tables(raw_vault: RawVault) -> None:
 
     # create satellites
     raw_vault.create_satellite(SOURCE_TABLE_NAME_MOVIES, [
-        ColumnDefinition("PublicID", StringType()),
+        ColumnDefinition("NAME", StringType()),
+        ColumnDefinition("YEAR", IntegerType()),
+        ColumnDefinition("DIRECTOR_ID", StringType()),
         ColumnDefinition("RATING", DoubleType()),
         ColumnDefinition("RANK", IntegerType())
     ])
 
     raw_vault.create_satellite(SOURCE_TABLE_NAME_ACTORS, [
-        ColumnDefinition("PublicID", StringType()),
+        ColumnDefinition("NAME", StringType()),
         ColumnDefinition("COUNTRY", StringType())
     ])
 
     raw_vault.create_satellite(SOURCE_TABLE_NAME_DIRECTORS, [
-        ColumnDefinition("PublicID", StringType()),
+        ColumnDefinition("NAME", StringType()),
         ColumnDefinition("COUNTRY", StringType())
     ])
 
@@ -332,15 +333,18 @@ def load_from_prepared_staging_table(raw_vault: RawVault, batch: int) -> None:
     # load hubs and satellites
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_MOVIES}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES), HKEY_COLUMNS_MOVIES, 
-        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES), ['PublicID', 'RATING', 'RANK'])])
+        # [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES), ['PublicID', 'RATING', 'RANK'])])
+        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES), ['NAME', 'YEAR', 'DIRECTOR_ID', 'RATING', 'RANK'])])
 
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_ACTORS}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS), HKEY_COLUMNS_ACTORS, 
-        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS), ['PublicID', 'COUNTRY'])])
+        # [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS), ['PublicID', 'COUNTRY'])])
+        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS), ['NAME', 'COUNTRY'])])
 
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_DIRECTORS}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_DIRECTORS), HKEY_COLUMNS_DIRECTORS, 
-        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_DIRECTORS), ['PublicID', 'COUNTRY'])])
+        # [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_DIRECTORS), ['PublicID', 'COUNTRY'])])
+        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_DIRECTORS), ['NAME', 'COUNTRY'])])
 
     # load links
     raw_vault.load_link_from_prepared_stage_table(
@@ -1078,12 +1082,12 @@ def test_business_vault(spark: SparkSession):
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
 
     movie_columns = [
-        f"{column_prefix_movies_sat}.{movie_columns[0]}", f"{column_prefix_movies_hub}.{movie_columns[1]}",
-        f"{column_prefix_movies_hub}.{movie_columns[2]}", f"{column_prefix_movies_sat}.{movie_columns[3]}",
+        f"{column_prefix_movies_hub}.{movie_columns[0]}", f"{column_prefix_movies_sat}.{movie_columns[1]}",
+        f"{column_prefix_movies_sat}.{movie_columns[2]}", f"{column_prefix_movies_sat}.{movie_columns[3]}",
         f"{column_prefix_movies_sat}.{movie_columns[4]}"
     ]
     actor_columns = [
-        f"{column_prefix_actors_sat}.{actor_columns[0]}", f"{column_prefix_actors_hub}.{actor_columns[1]}",
+        f"{column_prefix_actors_hub}.{actor_columns[0]}", f"{column_prefix_actors_sat}.{actor_columns[1]}",
         f"{column_prefix_actors_sat}.{actor_columns[2]}"
     ]
 
@@ -1138,12 +1142,12 @@ def test_business_vault(spark: SparkSession):
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
 
     movie_columns = [
-        f"{column_prefix_movies_sat}.{movie_columns[0]}", f"{column_prefix_movies_hub}.{movie_columns[1]}",
-        f"{column_prefix_movies_hub}.{movie_columns[2]}", f"{column_prefix_movies_sat}.{movie_columns[3]}",
+        f"{column_prefix_movies_hub}.{movie_columns[0]}", f"{column_prefix_movies_sat}.{movie_columns[1]}",
+        f"{column_prefix_movies_sat}.{movie_columns[2]}", f"{column_prefix_movies_sat}.{movie_columns[3]}",
         f"{column_prefix_movies_sat}.{movie_columns[4]}"
     ]
     director_columns = [
-        f"{column_prefix_directors_sat}.{director_columns[0]}", f"{column_prefix_directors_hub}.{director_columns[1]}",
+        f"{column_prefix_directors_hub}.{director_columns[0]}", f"{column_prefix_directors_sat}.{director_columns[1]}",
         f"{column_prefix_directors_sat}.{director_columns[2]}"
     ]
 
