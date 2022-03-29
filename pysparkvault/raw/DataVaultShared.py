@@ -58,7 +58,7 @@ class DataVaultConventions:
         ref='REF__',
         sat='SAT__',
         pit='PIT__',
-        effectivity='EFFECTIVTY_',
+        effectivity='EFFECTIVITY_',
         hkey='HKEY',
         hdiff='HDIFF',
         load_date='LOAD_DATE', 
