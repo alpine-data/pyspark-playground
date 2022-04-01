@@ -238,6 +238,7 @@ class RawVault:
         link_df = self.spark.table(link_table_name)
 
         # CHANGE THIS HERE!
+        # Tests fail because from_staging_foreign_key.to.column may not be in SAT but in HUB
         sat_df = self.spark.table(sat_table_name) \
             .groupBy(self.conventions.hkey_column_name(), from_staging_foreign_key.to.column) \
             .agg(F.max(self.conventions.load_date_column_name()))
