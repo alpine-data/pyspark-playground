@@ -2,11 +2,9 @@ import pyspark.sql.functions as F
 
 from typing import List
 
-from delta.tables import *
 from pyspark.sql import DataFrame
-from pyspark.sql.types import BooleanType, DataType
+from pyspark.sql.types import *
 from pyspark.sql.session import SparkSession
-from pyspark.sql.types import StringType, StructField, StructType,TimestampType
 
 from .DataVaultShared import *
 
