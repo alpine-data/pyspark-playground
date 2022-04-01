@@ -209,6 +209,7 @@ class DataVaultConventions:
         if name.startswith(f'{self.SAT}{self.EFFECTIVTY}'):
             return name
         else:
+            name = self.remove_prefix(name)
             return f'{self.SAT}{self.EFFECTIVTY}{name}'
 
     def pit_name(self, name: str) -> str:

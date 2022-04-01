@@ -213,6 +213,7 @@ class RawVault:
         link_table_name: str,
         from_hkey_column_name: str,
         to_hkey_column_name: str) -> None:
+        
         """
         Loads a link for two linked source tables based on the prepared staging tables.
 
@@ -231,16 +232,30 @@ class RawVault:
         hub_table_name = self.conventions.hub_name(from_staging_foreign_key.to.table)
         hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
         hub_table_name = self.conventions.remove_source_prefix(hub_table_name)
+
+        sat_table_name = self.conventions.sat_name(from_staging_foreign_key.to.table)
+        sat_table_name = f'{self.config.raw_database_name}.{sat_table_name}'
+        sat_table_name = self.conventions.remove_source_prefix(sat_table_name)
         
         link_df = self.spark.table(link_table_name)
 
+        # CHANGE THIS HERE!
+        sat_df = self.spark.table(sat_table_name) \
+            .groupBy(self.conventions.hkey_column_name(), from_staging_foreign_key.to.column) \
+            .agg(F.max(self.conventions.load_date_column_name()))
+
         hub_df = self.spark.table(hub_table_name) \
-            .withColumnRenamed(self.conventions.hkey_column_name(), to_hkey_column_name) \
-            .select([from_staging_foreign_key.to.column, to_hkey_column_name]) \
+            .withColumnRenamed(self.conventions.hkey_column_name(), to_hkey_column_name)
+
+        hub_df = hub_df \
+            .join(sat_df, hub_df[to_hkey_column_name] == sat_df[self.conventions.hkey_column_name()]) \
+            .select([to_hkey_column_name, from_staging_foreign_key.to.column]) 
 
         columns = [
-            from_staging_foreign_key.column, from_hkey_column_name, 
-            self.conventions.cdc_operation_column_name(), self.conventions.load_date_column_name()
+            from_staging_foreign_key.column, 
+            from_hkey_column_name, 
+            self.conventions.cdc_operation_column_name(), 
+            self.conventions.load_date_column_name()
         ]
 
         staged_from_df = self.spark.table(f'{self.config.staging_prepared_database_name}.{from_staging_table_name}') \
@@ -248,8 +263,10 @@ class RawVault:
             .select(columns)
 
         columns = [
-            self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), 
-            self.conventions.record_source_column_name(), from_hkey_column_name, to_hkey_column_name
+            self.conventions.hkey_column_name(), 
+            self.conventions.load_date_column_name(), 
+            self.conventions.record_source_column_name(), 
+            from_hkey_column_name, to_hkey_column_name
         ]
 
         join_condition = staged_from_df[from_staging_foreign_key.column] == hub_df[from_staging_foreign_key.to.column]
