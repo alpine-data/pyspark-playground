@@ -58,7 +58,7 @@ class DataVaultConventions:
         ref='REF__',
         sat='SAT__',
         pit='PIT__',
-        effectivity='EFFECTIVTY_',
+        effectivity='EFFECTIVITY_',
         hkey='HKEY',
         hdiff='HDIFF',
         load_date='LOAD_DATE', 
@@ -234,6 +234,15 @@ class DataVaultConventions:
             return name
         else:
             return f'{self.REF}{name}'
+
+    def remove_source_prefix(self, name: str):
+        """
+        Return a table name without its source prefix.
+        """
+        return name \
+            .replace("CC_", "") \
+            .replace("CCX_", "") \
+            .replace("ALG_", "")
 
     def remove_prefix(self, name: str) -> str:
         """
