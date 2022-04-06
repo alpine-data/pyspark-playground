@@ -121,6 +121,8 @@ class RawVault:
             id_column,
         ] + attribute_columns
 
+        print(columns)
+
         self.__create_external_table(self.config.raw_database_name, self.conventions.ref_name(name), columns)
 
     def create_satellite(self, name: str, attribute_columns: List[ColumnDefinition]) -> None:
@@ -221,6 +223,7 @@ class RawVault:
         :param from_hkey_column_name - The name of the column pointing to the origin of the link in the link table.
         :param to_hkey_column_name - The name of the column pointing to the target of the link in the link table.
         """
+
         sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
         sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
 
@@ -239,16 +242,22 @@ class RawVault:
 
         # CHANGE THIS HERE!
         # Tests fail because from_staging_foreign_key.to.column may not be in SAT but in HUB
-        sat_df = self.spark.table(sat_table_name) \
-            .groupBy(self.conventions.hkey_column_name(), from_staging_foreign_key.to.column) \
-            .agg(F.max(self.conventions.load_date_column_name()))
-
+        sat_df = self.spark.table(sat_table_name)
         hub_df = self.spark.table(hub_table_name) \
             .withColumnRenamed(self.conventions.hkey_column_name(), to_hkey_column_name)
 
+        assert from_staging_foreign_key.to.column in sat_df.columns or from_staging_foreign_key.to.column in hub_df.columns, f"The column {from_staging_foreign_key.to.column} needs to exist in {sat_table_name} or {hub_table_name}."
+        if from_staging_foreign_key.to.column in sat_df.columns:
+            sat_df = sat_df \
+                .groupBy(self.conventions.hkey_column_name(), from_staging_foreign_key.to.column) \
+                .agg(F.max(self.conventions.load_date_column_name()))
+
+            hub_df = hub_df \
+                .join(sat_df, hub_df[to_hkey_column_name] == sat_df[self.conventions.hkey_column_name()])
+
         hub_df = hub_df \
-            .join(sat_df, hub_df[to_hkey_column_name] == sat_df[self.conventions.hkey_column_name()]) \
-            .select([to_hkey_column_name, from_staging_foreign_key.to.column]) 
+            .select([to_hkey_column_name, from_staging_foreign_key.to.column])
+        
 
         columns = [
             from_staging_foreign_key.column, 
@@ -441,7 +450,6 @@ class RawVault:
             .join(ref_df, join_condition, how='left_anti') \
             .write.mode('append').saveAsTable(ref_table_name)
 
-
     def load_code_references_from_prepared_stage_table(self, staging_table_name: str, reference_table_name: str, id_column: str, attributes: List[str]) -> None:
         """
         Loads a reference table from a staging table. 
@@ -466,6 +474,40 @@ class RawVault:
         staged_df = staged_df \
             .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash(attributes)) \
             .withColumn(self.conventions.ref_group_column_name(), F.lit(staging_table_name.lower())) \
+            .select(columns) \
+            .distinct() \
+            .join(ref_df, join_condition, how='left_anti') \
+            .write.mode('append').saveAsTable(ref_table_name)
+    
+    def load_code_references_from_multiple_prepared_stage_tables(self, staging_table_names: List[str], reference_table_name: str, id_column: str, attributes: List[str]) -> None:
+        """
+        Loads a code reference table from multiple staging tables. 
+
+        :param staging_table_names - The List of names of the tables in the prepared staging area. The staging table name will be used as group name.
+        :param reference_table_name - The name of the REF-table in the raw vault.
+        :param id_column - The name of the column holding the id of the reference.
+        :param attributes - The list of attributes which are stored in the reference table.
+        """
+        columns = [self.conventions.ref_group_column_name(), id_column, self.conventions.hdiff_column_name(), self.conventions.load_date_column_name()] + attributes
+
+        reference_table_name = self.conventions.ref_name(reference_table_name)
+        ref_table_name = f'{self.config.raw_database_name}.{reference_table_name}'
+        
+        ref_df = self.spark.table(ref_table_name)
+        staged_df = self.spark.table(f'`{self.config.staging_prepared_database_name}`.`{staging_table_names[0]}`') \
+            .withColumn(self.conventions.ref_group_column_name(), F.lit(staging_table_names[0].lower()))
+        
+        for staging_table in staging_table_names[1:]:
+            staged_table_df = self.spark.table(f'`{self.config.staging_prepared_database_name}`.`{staging_table}`') \
+                .withColumn(self.conventions.ref_group_column_name(), F.lit(staging_table.lower()))
+            staged_df = staged_df.union(staged_table_df)
+
+        join_condition = [ref_df[id_column] == staged_df[id_column], \
+            ref_df[self.conventions.ref_group_column_name()] == staged_df[self.conventions.ref_group_column_name()], \
+            ref_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
+
+        staged_df = staged_df \
+            .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash(attributes)) \
             .select(columns) \
             .distinct() \
             .join(ref_df, join_condition, how='left_anti') \
