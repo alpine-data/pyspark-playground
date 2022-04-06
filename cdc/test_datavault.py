@@ -20,13 +20,18 @@ SOURCE_TABLE_NAME_MOVIES = "MOVIES"
 SOURCE_TABLE_NAME_ACTORS = "ACTORS"
 SOURCE_TABLE_NAME_DIRECTORS = "DIRECTORS"
 SOURCE_TABLE_NAME_CASTINGS = "CASTINGS"
+SOURCE_TABLE_NAME_TYPELISTS_1 = "TYPELISTS_1"
+SOURCE_TABLE_NAME_TYPELISTS_2 = "TYPELISTS_2"
 
 STAGING_TABLE_NAME_MOVIES = f"STG__{SOURCE_TABLE_NAME_MOVIES}"
 STAGING_TABLE_NAME_ACTORS = f"STG__{SOURCE_TABLE_NAME_ACTORS}"
 STAGING_TABLE_NAME_DIRECTORS = f"STG__{SOURCE_TABLE_NAME_DIRECTORS}"
 STAGING_TABLE_NAME_CASTINGS = f"STG__{SOURCE_TABLE_NAME_CASTINGS}"
+STAGING_TABLE_NAME_TYPELISTS_1 = f"STG__{SOURCE_TABLE_NAME_TYPELISTS_1}"
+STAGING_TABLE_NAME_TYPELISTS_2 = f"STG__{SOURCE_TABLE_NAME_TYPELISTS_2}"
 
 TYPELISTS_TABLE_NAME = 'TYPELIST'
+TYPELISTS_CODE_TABLE_NAME = 'CODE_TYPELIST'
 TYPELISTS_ACTIVE_TABLE_NAME = 'TYPELIST__ACTIVE'
 
 LINK_TABLE_NAME_MOVIES_DIRECTORS = f"{SOURCE_TABLE_NAME_MOVIES}__{SOURCE_TABLE_NAME_DIRECTORS}"
@@ -55,6 +60,8 @@ class LoadedTables(TypedDict):
     actors: DataFrame
     directors: DataFrame
     castings: DataFrame
+    typelists_1: DataFrame
+    typelists_2: DataFrame
 
 
 def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
@@ -73,7 +80,8 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
         StructField("YEAR", IntegerType(), False),
         StructField("DIRECTOR_ID", IntegerType(), True),
         StructField("RATING", DoubleType(), False),
-        StructField("RANK", IntegerType(), False)
+        StructField("RANK", IntegerType(), False),
+        StructField("retired", IntegerType(), False),
     ])
 
     schema_actors = StructType([
@@ -99,40 +107,52 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
         StructField("ACTOR_ID", StringType(), False)
     ])
 
+    schema_typelist_1 = StructType([
+        StructField(DV_CONV.load_date_column_name(), TimestampType(), False),
+        StructField("ID", StringType(), False),
+        StructField("DESCRIPTION", StringType(), False)
+    ])
+
+    schema_typelist_2 = StructType([
+        StructField(DV_CONV.load_date_column_name(), TimestampType(), False),
+        StructField("ID", StringType(), False),
+        StructField("DESCRIPTION", StringType(), False)
+    ])
+
     # define data
     movies = [
         [
-            (DV_CONV.CDC_OPS.SNAPSHOT, T_0, 1, "The Shawshank Redemption", 1994, 1, 9.3, 64),
-            (DV_CONV.CDC_OPS.SNAPSHOT, T_0, 2, "The Godfather", 1972, 2, 9.2, 94),
-            (DV_CONV.CDC_OPS.SNAPSHOT, T_0, 3, "The Dark Knight", 2008, 3, 9.0, 104),
-            (DV_CONV.CDC_OPS.SNAPSHOT, T_0, 4, "Star Wars: Episode V", 1980, 4, 8.7, 485)
+            (DV_CONV.CDC_OPS.SNAPSHOT, T_0, 1, "The Shawshank Redemption", 1994, 1, 9.3, 64, 0),
+            (DV_CONV.CDC_OPS.SNAPSHOT, T_0, 2, "The Godfather", 1972, 2, 9.2, 94, 0),
+            (DV_CONV.CDC_OPS.SNAPSHOT, T_0, 3, "The Dark Knight", 2008, 3, 9.0, 104, 0),
+            (DV_CONV.CDC_OPS.SNAPSHOT, T_0, 4, "Star Wars: Episode V", 1980, 4, 8.7, 485, 0)
         ],
         [
-            (DV_CONV.CDC_OPS.CREATE, T_2, 5, "Pulp Fiction", 1994, 5, 8.9, 138),
-            (DV_CONV.CDC_OPS.CREATE, T_2, 6, "Schindler's List", 1993, 6, 8.6, 145),
-            (DV_CONV.CDC_OPS.CREATE, T_2, 7, "Inception", 2010, 7, 8.3, 210),
-            (DV_CONV.CDC_OPS.DELETE, T_2, 3, "The Dark Knight", 2008, 3, 9.0, 104),
-            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.7, 485),
-            (DV_CONV.CDC_OPS.UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500),
-            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_3, 1, "The Shawshank Redemption", 1994, 1, 9.3, 64),
-            (DV_CONV.CDC_OPS.UPDATE, T_3, 1, "The Shawshank Redemption", 1994, None, 9.2, 67),
-            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.2, 94),
-            (DV_CONV.CDC_OPS.UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.1, 96),
-            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_4, 6, "Schindler's List", 1993, 6, 8.6, 145),
-            (DV_CONV.CDC_OPS.UPDATE, T_4, 6, "Schindler's List", 1993, None, 8.8, 125),
-            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_4, 1, "The Shawshank Redemption", 1994, None, 9.2, 67),
-            (DV_CONV.CDC_OPS.UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
-            (DV_CONV.CDC_OPS.CREATE, T_4, 3, "The Dark Knight", 2008, 3, 9.0, 104),
-            (DV_CONV.CDC_OPS.DELETE, T_4, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500)
+            (DV_CONV.CDC_OPS.CREATE, T_2, 5, "Pulp Fiction", 1994, 5, 8.9, 138, 0),
+            (DV_CONV.CDC_OPS.CREATE, T_2, 6, "Schindler's List", 1993, 6, 8.6, 145, 0),
+            (DV_CONV.CDC_OPS.CREATE, T_2, 7, "Inception", 2010, 7, 8.3, 210, 0),
+            (DV_CONV.CDC_OPS.DELETE, T_2, 3, "The Dark Knight", 2008, 3, 9.0, 104, 0),
+            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.7, 485, 0),
+            (DV_CONV.CDC_OPS.UPDATE, T_3, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500, 0),
+            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_3, 1, "The Shawshank Redemption", 1994, 1, 9.3, 64, 0),
+            (DV_CONV.CDC_OPS.UPDATE, T_3, 1, "The Shawshank Redemption", 1994, None, 9.2, 67, 0),
+            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.2, 94, 0),
+            (DV_CONV.CDC_OPS.UPDATE, T_4, 2, "The Godfather", 1972, 2, 9.1, 96, 0),
+            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_4, 6, "Schindler's List", 1993, 6, 8.6, 145, 0),
+            (DV_CONV.CDC_OPS.UPDATE, T_4, 6, "Schindler's List", 1993, None, 8.8, 125, 0),
+            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_4, 1, "The Shawshank Redemption", 1994, None, 9.2, 67, 0),
+            (DV_CONV.CDC_OPS.UPDATE, T_4, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2, 0),
+            (DV_CONV.CDC_OPS.CREATE, T_4, 3, "The Dark Knight", 2008, 3, 9.0, 104, 0),
+            (DV_CONV.CDC_OPS.DELETE, T_4, 4, "Star Wars: Episode V", 1980, 4, 8.4, 500, 0)
         ],
         [
-            (DV_CONV.CDC_OPS.DELETE, T_5, 3, "The Dark Knight", 2008, 3, 9.0, 104),
-            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_5, 2, "The Godfather", 1972, 2, 9.1, 96),
-            (DV_CONV.CDC_OPS.UPDATE, T_5, 2, "The Godfather", 1972, 3, 8.9, 103),
-            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_5, 6, "Schindler's List", 1993, None, 8.8, 125),
-            (DV_CONV.CDC_OPS.UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.3, 210),
-            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_5, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2),
-            (DV_CONV.CDC_OPS.UPDATE, T_5, 1, "The Shawshank Redemption", 1994, None, 9.5, 3)
+            (DV_CONV.CDC_OPS.DELETE, T_5, 3, "The Dark Knight", 2008, 3, 9.0, 104, 0),
+            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_5, 2, "The Godfather", 1972, 2, 9.1, 96, 0),
+            (DV_CONV.CDC_OPS.UPDATE, T_5, 2, "The Godfather", 1972, 3, 8.9, 103, 0),
+            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_5, 6, "Schindler's List", 1993, None, 8.8, 125, 0),
+            (DV_CONV.CDC_OPS.UPDATE, T_5, 6, "Schindler's List", 1993, 6, 8.3, 210, 0),
+            (DV_CONV.CDC_OPS.BEFORE_UPDATE, T_5, 1, "The Shawshank Redemption", 1994, 1, 9.6, 2, 0),
+            (DV_CONV.CDC_OPS.UPDATE, T_5, 1, "The Shawshank Redemption", 1994, None, 9.5, 3, 1)
         ]
     ]
 
@@ -215,13 +235,45 @@ def create_sample_data(spark: SparkSession) -> List[LoadedTables]:
         ]
     ]
 
+    typelist_1 = [
+        [
+            (T_0, "1", "A"),
+            (T_0, "2", "B"),
+            (T_0, "3", "C"),
+            (T_0, "4", "D"),
+            (T_0, "5", "E"),
+            (T_0, "6", "F"),
+            (T_0, "7", "G"),
+            (T_0, "8", "H")
+        ],
+        [],
+        []
+    ]
+
+    typelist_2 = [
+        [
+            (T_0, "1", "A"),
+            (T_0, "2", "B"),
+            (T_0, "3", "C"),
+            (T_0, "4", "D"),
+            (T_0, "5", "E"),
+            (T_0, "6", "F"),
+            (T_0, "7", "G"),
+            (T_0, "8", "H")
+        ],
+        [],
+        []
+    ]
+
     # returns a list that contains a LoadedTables object for each batch
     return [
         LoadedTables(
             movies=spark.createDataFrame(movies[i], schema_movies),
             actors=spark.createDataFrame(actors[i], schema_actors),
             directors=spark.createDataFrame(directors[i], schema_directors),
-            castings=spark.createDataFrame(castings[i], schema_castings)
+            castings=spark.createDataFrame(castings[i], schema_castings),
+            typelist_1=spark.createDataFrame(typelist_1[i], schema_typelist_1),
+            typelist_2=spark.createDataFrame(typelist_2[i], schema_typelist_2)
         )
         for i in range(len(movies))
     ]
@@ -240,6 +292,8 @@ def write_parquet_files(data: List[LoadedTables], staging_base_path: str) -> Non
         batch["actors"].write.mode('overwrite').parquet(f"{staging_base_path}/{STAGING_TABLE_NAME_ACTORS}_{i}.parquet")
         batch["directors"].write.mode('overwrite').parquet(f"{staging_base_path}/{STAGING_TABLE_NAME_DIRECTORS}_{i}.parquet")
         batch["castings"].write.mode('overwrite').parquet(f"{staging_base_path}/{STAGING_TABLE_NAME_CASTINGS}_{i}.parquet")
+        batch["typelist_1"].write.mode('overwrite').parquet(f"{staging_base_path}/{STAGING_TABLE_NAME_TYPELISTS_1}_{i}.parquet")
+        batch["typelist_2"].write.mode('overwrite').parquet(f"{staging_base_path}/{STAGING_TABLE_NAME_TYPELISTS_2}_{i}.parquet")
 
 
 def stage_tables(spark: SparkSession, raw_vault: RawVault, staging_base_path: str) -> None:
@@ -264,16 +318,24 @@ def stage_tables(spark: SparkSession, raw_vault: RawVault, staging_base_path: st
             raw_vault.stage_table(f"{STAGING_TABLE_NAME_DIRECTORS}_{i}", f, HKEY_COLUMNS_DIRECTORS)
         elif SOURCE_TABLE_NAME_CASTINGS in f:
             raw_vault.stage_table(f"{STAGING_TABLE_NAME_CASTINGS}_{i}", f, HKEY_COLUMNS_CASTINGS)
+        elif SOURCE_TABLE_NAME_TYPELISTS_1 in f:
+            raw_vault.stage_table(f"{STAGING_TABLE_NAME_TYPELISTS_1}_{i}", f, [])
+        elif SOURCE_TABLE_NAME_TYPELISTS_2 in f:
+            raw_vault.stage_table(f"{STAGING_TABLE_NAME_TYPELISTS_2}_{i}", f, [])
 
     for j in range(int(number_of_batches + 1)):
         movies_df = spark.table(f"{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{j}")
         actors_df = spark.table(f"{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{j}")
         directors_df = spark.table(f"{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_{j}")
         castings_df = spark.table(f"{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_CASTINGS}_{j}")
+        typelists_1_df = spark.table(f"{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_TYPELISTS_1}_{j}")
+        typelists_2_df = spark.table(f"{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_TYPELISTS_2}_{j}")
         movies_df.write.mode('append').saveAsTable(f'{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_FULL')
         actors_df.write.mode('append').saveAsTable(f'{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_FULL')
         directors_df.write.mode('append').saveAsTable(f'{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_FULL')
         castings_df.write.mode('append').saveAsTable(f'{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_CASTINGS}_FULL')
+        typelists_1_df.write.mode('append').saveAsTable(f'{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_TYPELISTS_1}_FULL')
+        typelists_2_df.write.mode('append').saveAsTable(f'{raw_vault.config.staging_prepared_database_name}.{STAGING_TABLE_NAME_TYPELISTS_2}_FULL')
 
             
 def create_data_vault_tables(raw_vault: RawVault) -> None:
@@ -308,7 +370,8 @@ def create_data_vault_tables(raw_vault: RawVault) -> None:
         ColumnDefinition("YEAR", IntegerType()),
         ColumnDefinition("DIRECTOR_ID", StringType()),
         ColumnDefinition("RATING", DoubleType()),
-        ColumnDefinition("RANK", IntegerType())
+        ColumnDefinition("RANK", IntegerType()),
+        ColumnDefinition("retired", IntegerType())
     ])
 
     raw_vault.create_satellite(SOURCE_TABLE_NAME_ACTORS, [
@@ -334,7 +397,7 @@ def load_from_prepared_staging_table(raw_vault: RawVault, batch: int) -> None:
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_MOVIES}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_MOVIES), HKEY_COLUMNS_MOVIES, 
         # [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES), ['PublicID', 'RATING', 'RANK'])])
-        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES), ['NAME', 'YEAR', 'DIRECTOR_ID', 'RATING', 'RANK'])])
+        [SatelliteDefinition(DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES), ['NAME', 'YEAR', 'DIRECTOR_ID', 'RATING', 'RANK', 'retired'])])
 
     raw_vault.load_hub_from_prepared_staging_table(
         f"{STAGING_TABLE_NAME_ACTORS}_{batch}", DV_CONV.hub_name(SOURCE_TABLE_NAME_ACTORS), HKEY_COLUMNS_ACTORS, 
@@ -370,35 +433,22 @@ def create_pit_tables(business_vault: RawVault) -> None:
     business_vault.create_point_in_time_table_for_single_satellite(SOURCE_TABLE_NAME_DIRECTORS, SOURCE_TABLE_NAME_DIRECTORS)
 
 
-def create_reference_tables(spark: SparkSession, business_vault: RawVault) -> None: 
-    schema_typelist = StructType([
-        StructField(DV_CONV.load_date_column_name(), TimestampType(), False),
-        StructField(DV_CONV.ref_group_column_name(), StringType(), False),
-        StructField("PublicID", StringType(), False),
-        StructField("DESCRIPTION", StringType(), False)
-    ])
+def create_reference_tables(raw_vault: RawVault, batch: int) -> None:
 
-    data = [
-        (T_0, "test_group_1", "1", "A"),
-        (T_0, "test_group_1", "2", "B"),
-        (T_0, "test_group_1", "3", "C"),
-        (T_0, "test_group_1", "4", "D"),
-        (T_0, "test_group_1", "5", "E"),
-        (T_0, "test_group_1", "6", "F"),
-        (T_0, "test_group_1", "7", "G"),
-        (T_0, "test_group_1", "8", "H"),
-        (T_0, "test_group_2", "1", "A"),
-        (T_0, "test_group_2", "2", "B"),
-        (T_0, "test_group_2", "3", "C"),
-        (T_0, "test_group_2", "4", "D"),
-        (T_0, "test_group_2", "5", "E"),
-        (T_0, "test_group_2", "6", "F"),
-        (T_0, "test_group_2", "7", "G"),
-        (T_0, "test_group_2", "8", "H"),
-    ]
+    # create reference table
+    raw_vault.create_reference_table(TYPELISTS_TABLE_NAME, ColumnDefinition("ID", StringType()), [ColumnDefinition("DESCRIPTION", StringType())])
+    raw_vault.create_code_reference_table(TYPELISTS_CODE_TABLE_NAME, ColumnDefinition("ID", StringType()), [ColumnDefinition("DESCRIPTION", StringType())])
 
-    df = spark.createDataFrame(data, schema_typelist)
-    df.write.mode('overwrite').saveAsTable(f'{business_vault.config.raw_database_name}.{DV_CONV.ref_name(TYPELISTS_TABLE_NAME)}')
+    # load reference table
+    raw_vault.load_references_from_prepared_stage_table(f"{STAGING_TABLE_NAME_TYPELISTS_1}_{batch}", TYPELISTS_TABLE_NAME, "ID", ["DESCRIPTION"])
+
+    # alternative
+    # raw_vault.load_code_references_from_prepared_stage_table(f"{STAGING_TABLE_NAME_TYPELISTS_1}_{batch}", TYPELISTS_CODE_TABLE_NAME, "ID", ["DESCRIPTION"])
+    # raw_vault.load_code_references_from_prepared_stage_table(f"{STAGING_TABLE_NAME_TYPELISTS_2}_{batch}", TYPELISTS_CODE_TABLE_NAME, "ID", ["DESCRIPTION"])
+
+    # load code reference table
+    raw_vault.load_code_references_from_multiple_prepared_stage_tables(
+        [f"{STAGING_TABLE_NAME_TYPELISTS_1}_{batch}", f"{STAGING_TABLE_NAME_TYPELISTS_2}_{batch}"], TYPELISTS_CODE_TABLE_NAME, "ID", ["DESCRIPTION"])
 
 
 def test_datavault_transformatios(spark: SparkSession):
@@ -428,6 +478,7 @@ def test_datavault_transformatios(spark: SparkSession):
     # load hubs, satellites, and links from staging batch 0
     batch = 0
     load_from_prepared_staging_table(raw_vault, batch)
+    create_reference_tables(raw_vault, batch)
 
     # tests
     df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{batch}')
@@ -442,6 +493,8 @@ def test_datavault_transformatios(spark: SparkSession):
     df_link_movies_directors = spark.table(f'{config.raw_database_name}.{DV_CONV.link_name(LINK_TABLE_NAME_MOVIES_DIRECTORS)}')
     df_sat_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_sat_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_name(SOURCE_TABLE_NAME_ACTORS)}')
+    df_ref_code = spark.table(f'{config.raw_database_name}.{DV_CONV.ref_name(TYPELISTS_CODE_TABLE_NAME)}')
+    df_ref = spark.table(f'{config.raw_database_name}.{DV_CONV.ref_name(TYPELISTS_TABLE_NAME)}')
 
     df_sat_effectivity_movies = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_MOVIES)}')
     df_sat_effectivity_actors = spark.table(f'{config.raw_database_name}.{DV_CONV.sat_effectivity_name(SOURCE_TABLE_NAME_ACTORS)}')
@@ -615,15 +668,17 @@ def test_datavault_transformatios(spark: SparkSession):
     assert actor.select("COUNTRY").collect()[0][0] == country, \
         f'The queried country of actor {actor.select("NAME").collect()[0][0]} is {country}. Correct would be {movie.select("COUNTRY").collect()[0][0]}.'
 
+    # TODO: add test for reference tables
+    # df_ref.show()
+    # df_ref_code.show()
+
     # load hubs, satellites, and links from staging batch 1
     batch = 1
     load_from_prepared_staging_table(raw_vault, batch)
 
     # tests
-    df_movies_0 = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{batch - 1}')
     df_actors_0 = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{batch - 1}')
     df_directors_0 = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_DIRECTORS}_{batch - 1}')
-    df_castings_0 = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_CASTINGS}_{batch - 1}')
 
     df_movies = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_MOVIES}_{batch}')
     df_actors = spark.table(f'{config.staging_prepared_database_name}.{STAGING_TABLE_NAME_ACTORS}_{batch}')
@@ -898,7 +953,7 @@ def test_datavault_transformatios(spark: SparkSession):
     assert movie.select("RANK").collect()[0][0] == rank, \
         f'The queried rank of movie {movie.select("NAME").collect()[0][0]} is {rank}. Correct would be {movie.select("RANK").collect()[0][0]}.'
 
-
+@pytest.mark.skip(reason=None)
 def test_pit_tables(spark: SparkSession):
     """
     Executes several test cases for PIT table generation.
@@ -956,7 +1011,7 @@ def test_pit_tables(spark: SparkSession):
     assert load_end_date == datetime.max, \
         f'The load_end_date {load_end_date} is not correct. Correct would be {datetime.max}.'
 
-
+@pytest.mark.skip(reason=None)
 def test_business_vault(spark: SparkSession):
     """
     Executes several test cases BusinessVault functions.
@@ -979,6 +1034,36 @@ def test_business_vault(spark: SparkSession):
     # Test read_data_from_hub(...) with movie "The Shawshank Redemption", 1994
     movie = df_movies \
         .filter((df_movies.PublicID == 1) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPS.BEFORE_UPDATE)) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc())
+
+    id = movie.select("PublicID").collect()[0][0]
+    name = movie.select("NAME").collect()[0][0]
+    year = movie.select("YEAR").collect()[0][0]
+    rating = movie.select("RATING").collect()[0][0]
+    rank = movie.select("RANK").collect()[0][0]
+
+    columns = ["PublicID", "NAME", "YEAR", "RATING", "RANK"]
+    df = business_vault.read_data_from_hub(SOURCE_TABLE_NAME_MOVIES, columns, include_hkey=True)
+
+    df = df \
+        .filter(col(DV_CONV.hkey_column_name()) == movie.select(DV_CONV.hkey_column_name()).collect()[0][0]) \
+        .orderBy(col(DV_CONV.load_date_column_name()).desc()) \
+        .select(columns)
+    
+    assert df.select(columns[0]).collect()[0][0] == id, \
+        f'The attribute {columns[0]} is set to {df.select(columns[0]).collect()[0][0]}. Correct would be {id}.'
+    assert df.select(columns[1]).collect()[0][0] == name, \
+        f'The attribute {columns[1]} is set to {df.select(columns[1]).collect()[0][0]}. Correct would be {name}.'
+    assert df.select(columns[2]).collect()[0][0] == year, \
+        f'The attribute {columns[2]} is set to {df.select(columns[2]).collect()[0][0]}. Correct would be {year}.'
+    assert df.select(columns[3]).collect()[0][0] == rating, \
+        f'The attribute {columns[3]} is set to {df.select(columns[3]).collect()[0][0]}. Correct would be {rating}.'
+    assert df.select(columns[4]).collect()[0][0] == rank, \
+        f'The attribute {columns[4]} is set to {df.select(columns[4]).collect()[0][0]}. Correct would be {rank}.'
+
+    # Test read_data_from_hub(...) with movie "The Dark Knight", 2008
+    movie = df_movies \
+        .filter((df_movies.PublicID == 3) & (df_movies[DV_CONV.cdc_operation_column_name()] != DV_CONV.CDC_OPS.BEFORE_UPDATE)) \
         .orderBy(col(DV_CONV.load_date_column_name()).desc())
 
     id = movie.select("PublicID").collect()[0][0]
@@ -1177,8 +1262,7 @@ def test_business_vault(spark: SparkSession):
     assert df.select(director_columns[2]).collect()[0][0] == country, \
         f'The attribute {director_columns[2]} is set to {df.select(director_columns[2]).collect()[0][0]}. Correct would be {country}.'
 
-
-@pytest.mark.skip()
+@pytest.mark.skip(reason=None)
 def test_curated(spark: SparkSession):
     """
     Executes several test cases Curated functions.
@@ -1187,8 +1271,6 @@ def test_curated(spark: SparkSession):
     """
     config = CuratedConfiguration(SOURCE_SYSTEM_NAME, RAW_BASE_PATH)
     business_vault = BusinessVault(spark, config)
-
-    create_reference_tables(spark, business_vault)
 
     typelists_table_name = f'{DV_CONV.ref_name(TYPELISTS_TABLE_NAME)}'
     typelists_active_table_name = f'{DV_CONV.ref_name(TYPELISTS_ACTIVE_TABLE_NAME)}'
@@ -1208,7 +1290,7 @@ def test_curated(spark: SparkSession):
         FieldDefinition('cc_movies', 'RANK'),
         FieldDefinition('cc_directors', 'PublicID', to_field_name="DIRECTOR_ID"),
         FieldDefinition('cc_directors', 'NAME', to_field_name="DIRECTOR_NAME"),
-        FieldDefinition('cc_directors', 'COUNTRY')
+        FieldDefinition('cc_directors', 'COUNTRY', to_field_name="DIRECTOR_COUNTRY")
     ])
 
-    df.orderBy(["spark_catalog.test__raw.hub__movies.NAME", DV_CONV.load_date_column_name()]).show(100)
+    df.orderBy(["MOVIE_NAME", "$__LOAD_DATE"]).show(100)
