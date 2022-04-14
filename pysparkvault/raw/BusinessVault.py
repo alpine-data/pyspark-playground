@@ -149,8 +149,8 @@ class BusinessVault:
         df_hub = self.spark.table(f"`{self.config.raw_database_name}`.`{hub_name}`")
 
         hub_attributes = list(set(df_hub.columns) & set(attributes))
-        sat_attributes = list(set(df_sat.columns) & set(attributes))
         hub_attributes = list([df_hub[column] for column in hub_attributes])
+        sat_attributes = list(set(df_sat.columns) & set(attributes))
         sat_attributes = list([df_sat[column] for column in sat_attributes])
 
         if include_hkey:
@@ -164,10 +164,12 @@ class BusinessVault:
                 (df_pit[self.conventions.load_date_column_name()] == df_sat[self.conventions.load_date_column_name()]))) \
             .join(df_hub, df_hub[self.conventions.hkey_column_name()] == df_pit[self.conventions.hkey_column_name()]) \
             .select(attribute_columns + [df_pit[self.conventions.load_date_column_name()], df_pit[self.conventions.load_end_date_column_name()]]) \
-            .groupBy(attribute_columns) \
-            .agg(
-                F.min(self.conventions.load_date_column_name()).alias(self.conventions.load_date_column_name()), 
-                F.max(self.conventions.load_end_date_column_name()).alias(self.conventions.load_end_date_column_name()))
+            .withColumn("$__LOAD_DATE__TMP", df_pit[self.conventions.load_date_column_name()]) \
+            .withColumn("$__LOAD_END_DATE_TMP", df_pit[self.conventions.load_end_date_column_name()]) \
+            .drop(df_pit[self.conventions.load_date_column_name()]) \
+            .drop(df_pit[self.conventions.load_end_date_column_name()]) \
+            .withColumnRenamed('$__LOAD_DATE__TMP', self.conventions.load_date_column_name()) \
+            .withColumnRenamed('$__LOAD_END_DATE_TMP', self.conventions.load_end_date_column_name())
 
     def read_data_from_hub(self, name: str, attributes: List[str], include_hkey: bool = False) -> DataFrame:
         """
