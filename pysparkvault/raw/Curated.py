@@ -1,3 +1,5 @@
+import pyspark.sql.functions as F
+
 from typing import Optional, Dict
 
 from pyspark.sql import DataFrame
@@ -88,22 +90,9 @@ class Curated:
 
         :param df - The DataFrame to be filtered.
         """
-        #
-        # TODO mw: Should we check for dangling pointers/ related tables? Then this is much more complex!
-        # e.g. in that case we could filter retired also while replacing with PublicID ...
-        # But also we should remove all "child" entities of the one which is retired - this we cannot do automatically.
-        # In that case we need to cascade through child entities. 
-        #
-        # Another option is to handle the retired field exactly similar like the deleted attribute - Currently under implementation by Jan.
-        #
-
-        #
-        # Other question: Did I understood it right: We should only exclude the rows which have been retired at the moment of initial load? In that case
-        # the story is again quite different ;) 
-        #
 
         if 'retired' in df.columns:
-            return df.filter(df['retired'] != 0)
+            return df.filter(df['retired'] == 0)
         else:
             return df
 
@@ -215,8 +204,11 @@ class Curated:
         source_dataframes: Dict[str, DataFrame] = {}
 
         for source_table in source_table_names.keys():
-            attributes = list([ field.from_field_name for field in fields if field.from_table is source_table ])
-            source_dataframes[source_table] = self.business_vault.read_data_from_hub(source_table_names[source_table], attributes, True)
+            attributes = list([ field.from_field_name for field in fields if field.from_table is source_table ] + ["retired"])
+            # filter retired
+            source_dataframe = self.business_vault.read_data_from_hub(source_table_names[source_table], attributes, True)
+            source_dataframe = self.filter_retired(source_dataframe)
+            source_dataframes[source_table] = source_dataframe
 
         # rename Columns
         for field in fields:
