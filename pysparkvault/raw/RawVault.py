@@ -1,3 +1,4 @@
+from select import select
 import pyspark.sql.functions as F
 
 from typing import List
@@ -228,11 +229,10 @@ class RawVault:
         """
 
         sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(hub_table_name))
-        sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
         hub_table_name = self.conventions.hub_name(hub_table_name)
-        hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
-        
-        hub_df = self.spark.table(hub_table_name)
+
+
+        hub_df = self.spark.table(f'{self.config.raw_database_name}.{hub_table_name}')
         
         staged_df = staged_df \
             .withColumn(self.conventions.cdc_load_date_column_name(), staged_df[self.conventions.load_date_column_name()]) \
@@ -244,29 +244,20 @@ class RawVault:
         for satellite in satellites:
             self.load_satellite_from_prepared_stage_dataframe(staged_df, satellite)
 
+        join_condition = hub_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()]
+            
         columns = [
             self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), 
             self.conventions.record_source_column_name()
         ] + business_key_column_names
 
-        join_condition = hub_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()]
-            
-        if self.config.optimize_partitioning:
-            staged_df \
-                .join(hub_df, join_condition, how='left_anti') \
-                .select(columns) \
-                .distinct() \
-                .write \
-                .bucketBy(self.config.partition_size, self.conventions.hkey_column_name()) \
-                .mode('append') \
-                .saveAsTable(hub_table_name)
-        else:
-            staged_df \
-                .join(hub_df, join_condition, how='left_anti') \
-                .select(hub_df.columns) \
-                .write \
-                .mode('append') \
-                .saveAsTable(hub_table_name)
+        staged_df = staged_df \
+            .join(hub_df, join_condition, how='left_anti') \
+            .select(columns) \
+            .distinct()
+
+        bucket_columns = [self.conventions.hkey_column_name()]
+        self.__write_table(staged_df, self.config.raw_database_name, hub_table_name, bucket_columns=bucket_columns, mode="append")
 
     def load_link_for_linked_source_tables_from_prepared_staging_tables(
         self, 
@@ -331,10 +322,8 @@ class RawVault:
         """
 
         sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
-        sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
 
         link_table_name = self.conventions.link_name(link_table_name)
-        link_table_name = f'{self.config.raw_database_name}.{link_table_name}'
 
         hub_table_name = self.conventions.hub_name(from_foreign_key.to.table)
         hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
@@ -343,8 +332,8 @@ class RawVault:
         sat_table_name = self.conventions.sat_name(from_foreign_key.to.table)
         sat_table_name = f'{self.config.raw_database_name}.{sat_table_name}'
         sat_table_name = self.conventions.remove_source_prefix(sat_table_name)
-        
-        link_df = self.spark.table(link_table_name)
+
+        link_df = self.spark.table(f'{self.config.raw_database_name}.{link_table_name}')
 
         # CHANGE THIS HERE!
         # Tests fail because from_staging_foreign_key.to.column may not be in SAT but in HUB
@@ -375,38 +364,31 @@ class RawVault:
             .select(columns) \
             .cache()
 
-        columns = [
-            self.conventions.hkey_column_name(), 
-            self.conventions.load_date_column_name(), 
-            self.conventions.record_source_column_name(), 
-            from_hkey_column_name, to_hkey_column_name
-        ]
-
         join_condition = staged_from_df[from_foreign_key.column] == hub_df[from_foreign_key.to.column]
         current_timestamp = F.current_timestamp()
+
+        columns = [
+            self.conventions.hkey_column_name(),
+            self.conventions.load_date_column_name(),
+            self.conventions.record_source_column_name(),
+            from_hkey_column_name,
+            to_hkey_column_name
+        ]
+
         joined_df = staged_from_df \
             .join(hub_df, join_condition) \
             .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
             .withColumn(self.conventions.load_date_column_name(), current_timestamp) \
             .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
-            .select(columns) \
+            .select(columns)
+
+        join_condition = link_df[self.conventions.hkey_column_name()] == joined_df[self.conventions.hkey_column_name()]
+        joined_df = joined_df \
+            .join(link_df, join_condition, how='left_anti') \
             .distinct()
 
-        # TODO jb: check referencing issue after writing to database
-        # delete_link_df.show()
-        join_condition = link_df[self.conventions.hkey_column_name()] == joined_df[self.conventions.hkey_column_name()]
-
-        if self.config.optimize_partitioning:
-            joined_df \
-                .join(link_df, join_condition, how='left_anti') \
-                .select(columns) \
-                .write \
-                .bucketBy(self.config.partition_size, self.conventions.hkey_column_name()) \
-                .mode('append').saveAsTable(link_table_name)
-        else:
-            joined_df.join(link_df, join_condition, how='left_anti') \
-                .select(link_df.columns) \
-                .write.mode('append').saveAsTable(link_table_name)
+        bucket_columns = [self.conventions.hkey_column_name()]
+        self.__write_table(joined_df, self.config.raw_database_name, link_table_name, bucket_columns=bucket_columns, mode="append")
 
         update_df = staged_from_df \
             .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.UPDATE) \
@@ -531,13 +513,10 @@ class RawVault:
         :param satellites - Definitions of the satellites for the link.
         """
 
-        sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
-        sat_effectivity_table_name = f'{self.config.raw_database_name}.{sat_effectivity_table_name}'
-        
+        sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))      
         link_table_name = self.conventions.link_name(link_table_name)
-        link_table_name = f'{self.config.raw_database_name}.{link_table_name}'
-
-        link_df = self.spark.table(link_table_name)
+        
+        link_df = self.spark.table(f'{self.config.raw_database_name}.{link_table_name}')
         
         for link in links:
             hub_table_name = f'{self.config.raw_database_name}.{self.conventions.remove_source_prefix(self.conventions.hub_name(link.name))}'
@@ -558,26 +537,21 @@ class RawVault:
             .distinct() \
 
         self.load_effectivity_satellite_from_prepared_stage_dataframe(staged_df, sat_effectivity_table_name)
-        
+
+        join_condition = link_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()]
+
         columns = [
             self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), 
             self.conventions.record_source_column_name()
         ] + [ link.hkey_column_name for link in links ]
 
-        join_condition = link_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()]
+        staged_df = staged_df \
+            .join(link_df, join_condition, how='left_anti') \
+            .select(columns) \
+            .distinct()
 
-        if self.config.optimize_partitioning:
-            staged_df \
-                .join(link_df, join_condition, how='left_anti') \
-                .select(columns) \
-                .write \
-                .bucketBy(self.config.partition_size, self.conventions.hkey_column_name()) \
-                .mode('append').saveAsTable(link_table_name)
-        else:
-            staged_df \
-                .join(link_df, join_condition, how='left_anti') \
-                .select(columns) \
-                .write.mode('append').saveAsTable(link_table_name)
+        bucket_columns = [self.conventions.hkey_column_name()]
+        self.__write_table(staged_df, self.config.raw_database_name, link_table_name, bucket_columns=bucket_columns, mode="append")
 
     def load_references_from_prepared_stage_table(self, staging_table_name: str, reference_table_name: str, id_column: str, attributes: List[str]) -> None:
         """
@@ -627,18 +601,17 @@ class RawVault:
 
         staged_df = staged_df \
             .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash(attributes)) \
-            .select(columns) \
-            .distinct()
+            .select(columns)
 
         if self.config.optimize_partitioning:
             staged_df = staged_df.repartition(self.config.partition_size, [id_column, self.conventions.load_date_column_name()])
-            staged_df.join(ref_df, join_condition, how='left_anti') \
-                .write \
-                .bucketBy(self.config.partition_size, [id_column, self.conventions.load_date_column_name()]) \
-                .mode('append').saveAsTable(ref_table_name)
-        else:
-            staged_df.join(ref_df, join_condition, how='left_anti') \
-                .write.mode('append').saveAsTable(ref_table_name)
+
+        staged_df = staged_df \
+            .join(ref_df, join_condition, how='left_anti') \
+            .distinct()
+
+        bucket_columns = [id_column, self.conventions.load_date_column_name()]
+        self.__write_table(staged_df, self.config.raw_database_name, reference_table_name, bucket_columns=bucket_columns, mode="append")
 
     def load_code_references_from_prepared_stage_table(self, staging_table_name: str, reference_table_name: str, id_column: str, attributes: List[str]) -> None:
         """
@@ -692,20 +665,18 @@ class RawVault:
         staged_df = staged_df \
             .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash(attributes)) \
             .withColumn(self.conventions.ref_group_column_name(), F.lit(staging_table_name.lower())) \
-            .select(columns) \
-            .distinct()
+            .select(columns)
 
         if self.config.optimize_partitioning:
             staged_df = staged_df.repartition(self.config.partition_size, 
                 [self.conventions.ref_group_column_name(), id_column, self.conventions.load_date_column_name()])
-            staged_df.join(ref_df, join_condition, how='left_anti') \
-                .write \
-                .bucketBy(self.config.partition_size, [self.conventions.ref_group_column_name(), id_column, self.conventions.load_date_column_name()]) \
-                .mode('append') \
-                .saveAsTable(ref_table_name)
-        else:
-            staged_df.join(ref_df, join_condition, how='left_anti') \
-                .write.mode('append').saveAsTable(ref_table_name)
+            
+        staged_df = staged_df \
+            .join(ref_df, join_condition, how='left_anti') \
+            .distinct()
+
+        bucket_columns = [self.conventions.ref_group_column_name(), id_column, self.conventions.load_date_column_name()]
+        self.__write_table(staged_df, self.config.raw_database_name, reference_table_name, bucket_columns=bucket_columns, mode="append")
     
     def load_code_references_from_multiple_prepared_stage_tables(self, staging_table_names: List[str], reference_table_name: str, id_column: str, attributes: List[str]) -> None:
         """
@@ -740,17 +711,11 @@ class RawVault:
             if self.config.optimize_partitioning:
                 staged_df = staged_df.repartition(self.config.partition_size, 
                     [self.conventions.ref_group_column_name(), id_column, self.conventions.load_date_column_name()])
-            staged_df = staged_df.join(ref_df, join_condition, how='left_anti')
+            staged_df = staged_df.join(ref_df, join_condition, how='left_anti').distinct()
             new_ref_df = new_ref_df.union(staged_df)
 
-        if self.config.optimize_partitioning:
-            new_ref_df \
-                .write \
-                .bucketBy(self.config.partition_size, [self.conventions.ref_group_column_name(), id_column, self.conventions.load_date_column_name()]) \
-                .mode('append') \
-                .saveAsTable(ref_table_name)
-        else:
-            new_ref_df.write.mode('append').saveAsTable(ref_table_name)
+        bucket_columns = [self.conventions.ref_group_column_name(), id_column, self.conventions.load_date_column_name()]
+        self.__write_table(new_ref_df, self.config.raw_database_name, reference_table_name, bucket_columns=bucket_columns, mode="append")
 
     def load_code_references_from_multiple_source_tables(self, source_table_names: List[str], reference_table_name: str, id_column: str, attributes: List[str]) -> None:
         """
@@ -785,17 +750,11 @@ class RawVault:
             if self.config.optimize_partitioning:
                 staged_df = staged_df.repartition(self.config.partition_size, 
                     [self.conventions.ref_group_column_name(), id_column, self.conventions.load_date_column_name()])
-            staged_df = staged_df.join(ref_df, join_condition, how='left_anti')
+            staged_df = staged_df.join(ref_df, join_condition, how='left_anti').distinct()
             new_ref_df = new_ref_df.union(staged_df)
 
-        if self.config.optimize_partitioning:
-            new_ref_df \
-                .write \
-                .bucketBy(self.config.partition_size, [self.conventions.ref_group_column_name(), id_column, self.conventions.load_date_column_name()]) \
-                .mode('append') \
-                .saveAsTable(ref_table_name)
-        else:
-            new_ref_df.write.mode('append').saveAsTable(ref_table_name)
+        bucket_columns = [self.conventions.ref_group_column_name(), id_column, self.conventions.load_date_column_name()]
+        self.__write_table(new_ref_df, self.config.raw_database_name, reference_table_name, bucket_columns=bucket_columns, mode="append")
 
     def load_satellite_from_prepared_stage_dataframe(self, staged_df: DataFrame, satellite: SatelliteDefinition) -> None:
         """
@@ -822,25 +781,20 @@ class RawVault:
             .filter(staged_df[self.conventions.cdc_operation_column_name()].isin(allowed_cdc_operations)) \
             .withColumn(self.conventions.load_date_column_name(), staged_df[self.conventions.cdc_load_date_column_name()]) \
             .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash(satellite.attributes)) \
-            .select(columns) \
-            .distinct() \
+            .select(columns)
+
+        if self.config.optimize_partitioning:
+            staged_df = staged_df.repartition(self.config.partition_size, [self.conventions.hkey_column_name(), self.conventions.load_date_column_name()])
 
         join_condition = [sat_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], \
             sat_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]]
 
-        if self.config.optimize_partitioning:
-            staged_df = staged_df.repartition(self.config.partition_size, [self.conventions.hkey_column_name(), self.conventions.load_date_column_name()])
-            staged_df \
-                .join(sat_df, join_condition, how='left_anti') \
-                .write \
-                .bucketBy(self.config.partition_size, [self.conventions.hkey_column_name(), self.conventions.load_date_column_name()]) \
-                .mode('append').saveAsTable(sat_table_name)
-        else:
-            staged_df \
-                .join(sat_df, join_condition, how='left_anti') \
-                .write \
-                .mode('append') \
-                .saveAsTable(sat_table_name)
+        staged_df = staged_df\
+            .join(sat_df, join_condition, how='left_anti') \
+            .distinct()
+
+        bucket_columns = [self.conventions.hkey_column_name(), self.conventions.load_date_column_name()]
+        self.__write_table(staged_df, self.config.raw_database_name, satellite.name, bucket_columns=bucket_columns, mode="append")
 
     def load_effectivity_satellite_from_prepared_stage_dataframe(self, staged_df: DataFrame, sat_effectivity_table_name: str) -> None:
         """
@@ -849,7 +803,8 @@ class RawVault:
         :param staged_df - The dataframe which contains the staged and prepared data for the satellite.
         :param satellite - The satellite definition.
         """
-        sat_effectivity_df = self.spark.table(sat_effectivity_table_name)
+
+        sat_effectivity_df = self.spark.table(f'{self.config.raw_database_name}.{sat_effectivity_table_name}')
         
         allowed_cdc_operations = [
             self.conventions.CDC_OPS.CREATE, self.conventions.CDC_OPS.DELETE, 
@@ -867,26 +822,22 @@ class RawVault:
             .withColumn(self.conventions.load_date_column_name(), staged_df[self.conventions.cdc_load_date_column_name()]) \
             .withColumn(self.conventions.deleted_column_name(), deleted_column) \
             .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash([self.conventions.deleted_column_name()])) \
-            .select(columns) \
-            .distinct()
+            .select(columns)
 
+        if self.config.optimize_partitioning:
+            staged_df = staged_df.repartition(self.config.partition_size, [self.conventions.hkey_column_name(), self.conventions.load_date_column_name()])
+        
         join_condition = [
             sat_effectivity_df[self.conventions.hkey_column_name()] == staged_df[self.conventions.hkey_column_name()], \
             sat_effectivity_df[self.conventions.load_date_column_name()] == staged_df[self.conventions.load_date_column_name()]
         ]
 
-        if self.config.optimize_partitioning:
-            staged_df = staged_df.repartition(self.config.partition_size, [self.conventions.hkey_column_name(), self.conventions.load_date_column_name()])
-            staged_df \
-                .join(sat_effectivity_df, join_condition, how='left_anti') \
-                .write \
-                .bucketBy(self.config.partition_size, [self.conventions.hkey_column_name(), self.conventions.load_date_column_name()]) \
-                .mode('append').saveAsTable(sat_effectivity_table_name)
-        else:
-            staged_df \
-                .join(sat_effectivity_df, join_condition, how='left_anti') \
-                .write \
-                .mode('append').saveAsTable(sat_effectivity_table_name)
+        staged_df = staged_df\
+            .join(sat_effectivity_df, join_condition, how='left_anti') \
+            .distinct()
+
+        bucket_columns = [self.conventions.hkey_column_name(), self.conventions.load_date_column_name()]
+        self.__write_table(staged_df, self.config.raw_database_name, sat_effectivity_table_name, bucket_columns=bucket_columns, mode="append")
 
     def stage_table(self, name: str, source: str, hkey_columns: List[str] = []) -> None: # TODO mw: Multiple HKeys, HDiffs?
         """
@@ -900,14 +851,12 @@ class RawVault:
         df = self.stage_table_df(source, hkey_columns)
 
         # write staged table into staging area.
-        if self.config.optimize_partitioning and self.conventions.hkey_column_name() in df.columns:
-            df \
-                .write \
-                .bucketBy(self.config.partition_size, self.conventions.hkey_column_name()) \
-                .mode('overwrite') \
-                .saveAsTable(f'{self.config.staging_prepared_database_name}.{name}')
+        if self.conventions.hkey_column_name() in df.columns:
+            bucket_columns = [self.conventions.hkey_column_name()]
         else:
-            df.write.mode('overwrite').saveAsTable(f'{self.config.staging_prepared_database_name}.{name}')
+            bucket_columns = []
+
+        self.__write_table(df, self.config.staging_prepared_database_name, name, bucket_columns=bucket_columns, mode="overwrite")
 
     def stage_table_df(self, source: str, hkey_columns: List[str] = []) -> DataFrame:
         """
@@ -945,14 +894,28 @@ class RawVault:
         :param name - The name of the table which should be created.
         :param columns - Column definitions for the tables.
         """
+
         schema = StructType([ StructField(c.name, c.type, c.nullable) for c in columns ])
         df: DataFrame = self.spark.createDataFrame([], schema)
+
+        self.__write_table(df, database, name, bucket_columns=bucket_columns, mode="ignore")
+
+    def __write_table(self, df: DataFrame, database: str, name: str, bucket_columns: List[str] = [], mode: str = "append"):
+        """
+        Writes a DataFrame to an external table in the database.
+
+        :param df - The DataFrame to be written to the database.
+        :param database - The name of the database where the table should be created.
+        :param name - The name of the table which should be created.
+        :param bucket_columns - The names of the columns which should be used for bucketing.
+        :param mode - The write mode.
+        """
 
         if self.config.optimize_partitioning and bucket_columns:
             df \
                 .write \
                 .bucketBy(self.config.partition_size, bucket_columns) \
-                .mode('ignore') \
+                .mode(mode) \
                 .saveAsTable(f'{database}.{name}')
         else:
-            df.write.mode('ignore').saveAsTable(f'{database}.{name}')
+            df.write.mode(mode).saveAsTable(f'{database}.{name}')
