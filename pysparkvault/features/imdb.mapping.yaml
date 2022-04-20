@@ -1,0 +1,10 @@
+hubs:
+  - name: HUB__MOVIES
+    source_table: movies
+    business_keys:
+      - name
+      - year
+  - name: HUB__DIRECTORS
+    source_table: directors
+    business_keys:
+      - ID
