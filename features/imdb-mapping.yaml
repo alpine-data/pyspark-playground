@@ -1,0 +1,38 @@
+hubs:
+  - name: HUB__MOVIES
+    source_table: movies
+    business_keys:
+      - NAME
+      - YEAR
+  - name: HUB__ACTORS
+    source_table: actors
+    business_keys:
+      - NAME
+  - name: HUB__DIRECTORS
+    source_table: directors
+    business_keys:
+      - ID
+imports: []
+links:
+  - name: LNK__MOVIES_DIRECTORS
+    raw_column: MOVIES__HKEY
+    source_table: movies
+    to:
+      - raw_column: DIRECTORS__HKEY
+        source_column: DIRECTOR
+        source_foreign_key:
+          column: ID
+          table: directors
+  - name: LNK__CASTINGS
+    source_table: castings
+    to:
+      - raw_column: MOVIE_ID
+        source_column: MOVIE_ID
+        source_foreign_key:
+          column: ID
+          table: movies
+      - raw_column: ACTOR_ID
+        source_column: ACTOR_ID
+        source_foreign_key:
+          column: ID
+          table: actors

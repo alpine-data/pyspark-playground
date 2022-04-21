@@ -1,0 +1,125 @@
+{
+    "name": "imdb",
+    "tables": [
+        {
+            "name": "movies",
+            "columns": [
+                {
+                    "name": "ID",
+                    "type": "long"
+                },
+                {
+                    "name": "NAME",
+                    "type": "text"
+                },
+                {
+                    "name": "YEAR",
+                    "type": "integer"
+                },
+                {
+                    "name": "DIRECTOR",
+                    "type": "long"
+                },
+                {
+                    "name": "RATING",
+                    "type": "integer"
+                },
+                {
+                    "name": "RANK",
+                    "type": "numeric"
+                },
+                {
+                    "name": "LAST_UPDATE",
+                    "type": "date"
+                }
+            ],
+            "primaryKey": [
+                "ID"
+            ],
+            "foreignKeys": [
+                {
+                    "column": "DIRECTOR",
+                    "foreignColumn": {
+                        "table": "directors",
+                        "column": "ID"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "actors",
+            "columns": [
+                {
+                    "name": "ID",
+                    "type": "long"
+                },
+                {
+                    "name": "NAME",
+                    "type": "text"
+                },
+                {
+                    "name": "COUNTRY",
+                    "type": "text"
+                }
+            ],
+            "primaryKey": [
+                "ID"
+            ],
+            "foreignKeys": []
+        },
+        {
+            "name": "directors",
+            "columns": [
+                {
+                    "name": "ID",
+                    "type": "long"
+                },
+                {
+                    "name": "NAME",
+                    "type": "text"
+                },
+                {
+                    "name": "COUNTRY",
+                    "type": "text"
+                }
+            ],
+            "primaryKey": [
+                "ID"
+            ],
+            "foreignKeys": []
+        },
+        {
+            "name": "castings",
+            "columns": [
+                {
+                    "name": "MOVIE_ID",
+                    "type": "long"
+                },
+                {
+                    "name": "ACTOR_ID",
+                    "type": "long"
+                }
+            ],
+            "primaryKey": [
+                "MOVIE_ID",
+                "ACTOR_ID"
+            ],
+            "foreignKeys": [
+                {
+                    "column": "MOVIE_ID",
+                    "foreignColumn": {
+                        "table": "movies",
+                        "column": "ID"
+                    }
+                },
+                {
+                    "column": "ACTOR_ID",
+                    "foreignColumn": {
+                        "table": "actors",
+                        "column": "ID"
+                    }
+                }
+            ]
+        }
+    ]
+}
