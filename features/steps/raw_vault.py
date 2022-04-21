@@ -1,5 +1,6 @@
 import datetime
 import json
+import copy
 
 import pyspark.sql.functions as F
 
@@ -25,6 +26,12 @@ def step_impl(context: Context, date: str, delay: int, time_unit: str, delayed_d
         time_unit = f"{time_unit}s"
     context.dates[date] = context.dates[delayed_date] + datetime.timedelta(**{time_unit: int(delay)})
 
+
+@given("a date `{date}` which is the maximum date.")  # noqa: F811
+def step_impl(context: Context, date) -> None:  # noqa: F811
+    context.dates[date] = datetime.datetime.max
+
+
 @given("we have source database schema `{schema}` and a data vault mapping `{schema_mapping}`.")
 def step_impl(context: Context, schema: str, schema_mapping: str) -> None:  # noqa: F811
 
@@ -43,7 +50,7 @@ def step_impl(context: Context, batch_name: str) -> None:  # noqa: F811
 
 @given("the batch contains changes for table `{table_name}`.")
 def step_impl(context: Context, table_name: str) -> None:  # noqa: F811
-    table = context.schema.get_table(table_name)
+    table = copy.deepcopy(context.schema.get_table(table_name))
     table.columns.insert(0, Column(name="OPERATION", type=ColumnType.integer))
     table.columns.insert(1, Column(name="LOAD_DATE", type=ColumnType.date))
 
@@ -56,6 +63,18 @@ def step_impl(context: Context, table_name: str) -> None:  # noqa: F811
 
 @when("the CDC batch `{batch_name}` is loaded at `{load_time}`.")
 def step_impl(context: Context, batch_name: str, load_time: str) -> None:  # noqa: F811
+    pass
+
+
+@when("the $__HKEY for the following line in the raw vault table `{table}` is assigned to `{variable_name}`")
+def step_impl(context: Context, table: str, variable_name: str) -> None:  # noqa: F811
+    # df = context.spark.table(f"{context.raw_base_path}.{table}")
+    # row = context.table.rows[0]
+    # for column in context.table.headings:
+    #     df = df.filter(F.col(column) == row[column])
+
+    # hkey = df.select("$__HKEY").collect()[0]
+    # context.hkeys[variable_name] = hkey
     pass
 
 
@@ -94,6 +113,7 @@ def step_impl(context: Context, table: str, n: str) -> None:  # noqa: F811
 @then("the raw vault table should contain exactly `{n}` rows with the following attributes")
 def step_impl(context: Context, n: str) -> None:  # noqa: F811
     # row = context.table.rows[0]
+    # row = preprocess_row(context, row)
     # for column in context.table.headings:
     #     df = df.filter(F.col(column) == row[column])
 
@@ -110,8 +130,12 @@ def preprocess_row(context: Context, row: Row) -> Row:
         idx = headings.index("OPERATION")
         cells[idx] = str(map_opertation_sting_to_id(cells[idx]))
 
+    if "$__HKEY" in headings:
+        idx = headings.index("$__HKEY")
+        cells[idx] = context.hkeys[cells[idx]]
+
     # map date strings to datetime objects stored in context
-    cells = [str(context.dates[cells[cell]]) if cell in context.dates.keys() == str else cell for cell in cells]
+    cells = [str(context.dates[cell]) if cell in context.dates.keys() else cell for cell in cells]
 
     # remove quotes from strings
     cells = [cell.strip("\"") if type(cell) == str else cell for cell in cells]

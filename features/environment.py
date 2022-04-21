@@ -15,6 +15,7 @@ def before_feature(context, feature):
     context.raw_vault_tables = []
     context.dates = {}
     context.batches = {}
+    context.hkeys = {}
 
     context.staging_base_path = f"{context.working_directory}/staging"
     context.staging_prepared_base_path = f"{context.working_directory}/staging_prepared"
