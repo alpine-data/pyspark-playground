@@ -1,4 +1,3 @@
-from select import select
 import pyspark.sql.functions as F
 
 from typing import List
@@ -6,6 +5,7 @@ from typing import List
 from pyspark.sql import DataFrame
 from pyspark.sql.types import *
 from pyspark.sql.session import SparkSession
+from pyspark.sql.window import Window
 
 from .DataVaultShared import *
 
@@ -303,6 +303,180 @@ class RawVault:
         staged_from_df = self.stage_table_df(f"{from_source_table_name}.parquet", staging_business_key_columns)
         self.load_link(staged_from_df, from_source_foreign_key, link_table_name, from_hkey_column_name, to_hkey_column_name)
 
+    # def load_link(
+    #     self, 
+    #     staged_from_df: DataFrame,
+    #     from_foreign_key: ForeignKey, 
+    #     link_table_name: str,
+    #     from_hkey_column_name: str,
+    #     to_hkey_column_name: str) -> None:
+        
+    #     """
+    #     Loads a link for two linked source tables based on the staging DataFrame.
+
+    #     :param staged_from_df - The Dataframe containing the staged data.
+    #     :param from_staging_foreign_key - The foreign key constraint of the source/ staging table which points to the other entity.
+    #     :param link_table_name - The name of the link table in the raw vault.
+    #     :param from_hkey_column_name - The name of the column pointing to the origin of the link in the link table.
+    #     :param to_hkey_column_name - The name of the column pointing to the target of the link in the link table.
+    #     """
+
+    #     sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
+
+    #     link_table_name = self.conventions.link_name(link_table_name)
+
+    #     hub_table_name = self.conventions.hub_name(from_foreign_key.to.table)
+    #     hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
+    #     hub_table_name = self.conventions.remove_source_prefix(hub_table_name)
+
+    #     sat_table_name = self.conventions.sat_name(from_foreign_key.to.table)
+    #     sat_table_name = f'{self.config.raw_database_name}.{sat_table_name}'
+    #     sat_table_name = self.conventions.remove_source_prefix(sat_table_name)
+
+    #     link_df = self.spark.table(f'{self.config.raw_database_name}.{link_table_name}')
+
+    #     # CHANGE THIS HERE!
+    #     # Tests fail because from_staging_foreign_key.to.column may not be in SAT but in HUB
+    #     sat_df = self.spark.table(sat_table_name)
+    #     hub_df = self.spark.table(hub_table_name) \
+    #         .withColumnRenamed(self.conventions.hkey_column_name(), to_hkey_column_name)
+
+    #     assert from_foreign_key.to.column in sat_df.columns or from_foreign_key.to.column in hub_df.columns, f"The column {from_foreign_key.to.column} needs to exist in {sat_table_name} or {hub_table_name}."
+    #     if from_foreign_key.to.column in sat_df.columns:
+    #         sat_df = sat_df \
+    #             .groupBy(self.conventions.hkey_column_name(), from_foreign_key.to.column) \
+    #             .agg(F.max(self.conventions.load_date_column_name()))
+
+    #         hub_df = hub_df \
+    #             .join(sat_df, hub_df[to_hkey_column_name] == sat_df[self.conventions.hkey_column_name()])
+
+    #     hub_df = hub_df.select([to_hkey_column_name, from_foreign_key.to.column])
+
+    #     columns = [
+    #         from_foreign_key.column, 
+    #         from_hkey_column_name, 
+    #         self.conventions.cdc_operation_column_name(), 
+    #         self.conventions.load_date_column_name()
+    #     ]
+
+    #     staged_from_df = staged_from_df \
+    #         .withColumnRenamed(self.conventions.hkey_column_name(), from_hkey_column_name) \
+    #         .select(columns) \
+    #         .cache()
+
+    #     join_condition = staged_from_df[from_foreign_key.column] == hub_df[from_foreign_key.to.column]
+    #     current_timestamp = F.current_timestamp()
+
+    #     columns = [
+    #         self.conventions.hkey_column_name(),
+    #         self.conventions.load_date_column_name(),
+    #         self.conventions.record_source_column_name(),
+    #         from_hkey_column_name,
+    #         to_hkey_column_name
+    #     ]
+
+    #     joined_df = staged_from_df \
+    #         .join(hub_df, join_condition) \
+    #         .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
+    #         .withColumn(self.conventions.load_date_column_name(), current_timestamp) \
+    #         .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
+    #         .select(columns)
+
+    #     join_condition = link_df[self.conventions.hkey_column_name()] == joined_df[self.conventions.hkey_column_name()]
+    #     joined_df = joined_df \
+    #         .join(link_df, join_condition, how='left_anti') \
+    #         .distinct()
+
+    #     bucket_columns = [self.conventions.hkey_column_name()]
+    #     self.__write_table(joined_df, self.config.raw_database_name, link_table_name, bucket_columns=bucket_columns, mode="append")
+
+    #     update_df = staged_from_df \
+    #         .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.UPDATE) \
+    #         .alias('l') \
+
+    #     before_update_df = staged_from_df \
+    #         .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.BEFORE_UPDATE) \
+    #         .alias('r') \
+
+    #     if self.config.optimize_partitioning:
+    #         update_df = update_df.repartition(self.config.partition_size, from_hkey_column_name)
+    #         before_update_df = before_update_df.repartition(self.config.partition_size, from_hkey_column_name)
+
+    #     update_df.cache()
+    #     before_update_df.cache()
+
+    #     join_condition = [update_df[from_hkey_column_name] == before_update_df[from_hkey_column_name]]
+    #     # covers the following cases:
+    #     #   1.  BEFORE_UPDATE reference == NOT NULL & UPDATE reference == NULL
+    #     #       -> set delete = True prev. reference
+    #     #   2.  BEFORE_UPDATE reference == NULL & UPDATE reference == NOT NULL
+    #     #       -> set delete = False current reference
+    #     #   3.  BEFORE_UPDATE reference == NOT NULL & UPDATE reference == NOT NULL & BEFORE_UPDATE reference != UPDATE reference
+    #     #       -> set delete = False current reference
+    #     #       -> set delete = True prev. reference
+    #     #   4.  SNAPSHOT | CREATE
+    #     #       -> set delete = False current reference
+    #     joined_df = update_df \
+    #         .join(before_update_df, join_condition) \
+    #         .filter((F.col(f'l.{from_foreign_key.column}').isNull()) & (F.col(f'r.{from_foreign_key.column}').isNotNull())) \
+    #         .select("r.*") \
+    #         .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.DELETE)) \
+    #         .union(
+    #             update_df \
+    #                 .join(before_update_df, join_condition) \
+    #                 .filter((F.col(f'l.{from_foreign_key.column}').isNotNull()) & (F.col(f'r.{from_foreign_key.column}').isNull())) \
+    #                 .select("l.*") \
+    #                 .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.CREATE))
+    #         ) \
+    #         .union(
+    #             update_df \
+    #                 .join(before_update_df, join_condition) \
+    #                 .filter(
+    #                     (F.col(f'l.{from_foreign_key.column}').isNotNull()) & 
+    #                     (F.col(f'r.{from_foreign_key.column}').isNotNull()) &
+    #                     (F.col(f'l.{from_foreign_key.column}') != F.col(f'r.{from_foreign_key.column}'))
+    #                 ) \
+    #                 .select("l.*") \
+    #                 .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.CREATE))
+    #         ) \
+    #         .union(
+    #             update_df \
+    #                 .join(before_update_df, join_condition) \
+    #                 .filter(
+    #                     (F.col(f'l.{from_foreign_key.column}').isNotNull()) & 
+    #                     (F.col(f'r.{from_foreign_key.column}').isNotNull()) &
+    #                     (F.col(f'l.{from_foreign_key.column}') != F.col(f'r.{from_foreign_key.column}'))
+    #                 ) \
+    #                 .select("r.*") \
+    #                 .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.DELETE))
+    #         ) \
+    #         .union(
+    #             staged_from_df \
+    #                 .filter(
+    #                     (staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.CREATE) |
+    #                     (staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.SNAPSHOT)
+    #                 )
+    #         )
+
+    #     columns = [
+    #         self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), 
+    #         self.conventions.record_source_column_name(), self.conventions.cdc_operation_column_name(), 
+    #         self.conventions.cdc_load_date_column_name(), from_hkey_column_name, to_hkey_column_name
+    #     ]
+
+    #     # TODO jb: join may be removed (performance optimization)
+    #     join_condition = joined_df[from_foreign_key.column] == hub_df[from_foreign_key.to.column]
+    #     joined_df = joined_df \
+    #         .join(hub_df, join_condition, how="left") \
+    #         .withColumnRenamed(self.conventions.load_date_column_name(), self.conventions.cdc_load_date_column_name()) \
+    #         .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
+    #         .withColumn(self.conventions.load_date_column_name(), current_timestamp) \
+    #         .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
+    #         .select(columns) \
+    #         .distinct()
+
+    #     self.load_effectivity_satellite_from_prepared_stage_dataframe(joined_df, sat_effectivity_table_name)
+
     def load_link(
         self, 
         staged_from_df: DataFrame,
@@ -321,161 +495,141 @@ class RawVault:
         :param to_hkey_column_name - The name of the column pointing to the target of the link in the link table.
         """
 
-        sat_effectivity_table_name = self.conventions.sat_effectivity_name(self.conventions.remove_prefix(link_table_name))
-
         link_table_name = self.conventions.link_name(link_table_name)
-
-        hub_table_name = self.conventions.hub_name(from_foreign_key.to.table)
-        hub_table_name = f'{self.config.raw_database_name}.{hub_table_name}'
-        hub_table_name = self.conventions.remove_source_prefix(hub_table_name)
-
-        sat_table_name = self.conventions.sat_name(from_foreign_key.to.table)
-        sat_table_name = f'{self.config.raw_database_name}.{sat_table_name}'
-        sat_table_name = self.conventions.remove_source_prefix(sat_table_name)
-
         link_df = self.spark.table(f'{self.config.raw_database_name}.{link_table_name}')
+        
+        sat_effectivity_table_name = self.conventions.sat_effectivity_name(link_table_name)
+        sat_effectivity_df = self.spark.table(f'{self.config.raw_database_name}.{sat_effectivity_table_name}')
 
-        # CHANGE THIS HERE!
-        # Tests fail because from_staging_foreign_key.to.column may not be in SAT but in HUB
-        sat_df = self.spark.table(sat_table_name)
-        hub_df = self.spark.table(hub_table_name) \
-            .withColumnRenamed(self.conventions.hkey_column_name(), to_hkey_column_name)
-
-        assert from_foreign_key.to.column in sat_df.columns or from_foreign_key.to.column in hub_df.columns, f"The column {from_foreign_key.to.column} needs to exist in {sat_table_name} or {hub_table_name}."
-        if from_foreign_key.to.column in sat_df.columns:
-            sat_df = sat_df \
-                .groupBy(self.conventions.hkey_column_name(), from_foreign_key.to.column) \
-                .agg(F.max(self.conventions.load_date_column_name()))
-
-            hub_df = hub_df \
-                .join(sat_df, hub_df[to_hkey_column_name] == sat_df[self.conventions.hkey_column_name()])
-
-        hub_df = hub_df.select([to_hkey_column_name, from_foreign_key.to.column])
-
-        columns = [
-            from_foreign_key.column, 
-            from_hkey_column_name, 
-            self.conventions.cdc_operation_column_name(), 
-            self.conventions.load_date_column_name()
-        ]
-
-        staged_from_df = staged_from_df \
+        from_df = staged_from_df \
+            .filter(
+                (F.col(self.conventions.cdc_operation_column_name()) == self.conventions.CDC_OPS.UPDATE) |
+                (F.col(self.conventions.cdc_operation_column_name()) == self.conventions.CDC_OPS.CREATE) |
+                (F.col(self.conventions.cdc_operation_column_name()) == self.conventions.CDC_OPS.SNAPSHOT)) \
             .withColumnRenamed(self.conventions.hkey_column_name(), from_hkey_column_name) \
-            .select(columns) \
             .cache()
 
-        join_condition = staged_from_df[from_foreign_key.column] == hub_df[from_foreign_key.to.column]
-        current_timestamp = F.current_timestamp()
+        from_df_with_link = from_df \
+            .filter(F.col(from_foreign_key.column).isNotNull())
 
+        # TODO mw: Handle if file is not loaded (CDC, no change).
+        to_df = self.stage_table_df(f"{from_foreign_key.to.table}.parquet", ["PublicID"]) \
+            .select([
+                F.col(self.conventions.hkey_column_name()), 
+                F.col(from_foreign_key.to.column)
+            ]) \
+            .withColumnRenamed(self.conventions.hkey_column_name(), to_hkey_column_name)
+
+        linked_df = from_df_with_link \
+            .join(to_df, from_df_with_link[from_foreign_key.column] == to_df[from_foreign_key.to.column], how="left").cache()
+
+        #
+        # some linked entities might not be present in staging tables, thus we need to find the right hash key
+        # in the existing hubs.
+        #
+        to_df_hub = self.spark.table(f'{self.config.raw_database_name}.{self.conventions.remove_source_prefix(self.conventions.hub_name(from_foreign_key.to.table.split("_")[0]))}')
+        to_df_sat = self.spark.table(f'{self.config.raw_database_name}.{self.conventions.remove_source_prefix(self.conventions.sat_name(from_foreign_key.to.table.split("_")[0]))}')
+
+        to_df = to_df_hub \
+            .join(to_df_sat, to_df_hub[self.conventions.hkey_column_name()] == to_df_sat[self.conventions.hkey_column_name()], how="left") \
+            .select([to_df_hub[self.conventions.hkey_column_name()], F.col(from_foreign_key.to.column)]) \
+            .withColumnRenamed(self.conventions.hkey_column_name(), to_hkey_column_name)
+
+        # TODO: Check for links with null values in to_hkey -> Log issue? Currently we just skip it.
         columns = [
-            self.conventions.hkey_column_name(),
-            self.conventions.load_date_column_name(),
-            self.conventions.record_source_column_name(),
-            from_hkey_column_name,
-            to_hkey_column_name
+            from_hkey_column_name, 
+            to_hkey_column_name,
+            from_df_with_link[self.conventions.load_date_column_name()],
+            from_df_with_link[self.conventions.record_source_column_name()]
         ]
-
-        joined_df = staged_from_df \
-            .join(hub_df, join_condition) \
+        
+        # add to_hkey_column from hub if not present in staged data
+        linked_df = linked_df \
+            .filter(F.col(to_hkey_column_name).isNotNull()) \
+                .select(columns) \
+            .union(linked_df \
+                .filter(F.col(to_hkey_column_name).isNull()) \
+                .drop(F.col(to_hkey_column_name)) \
+                .join(to_df, from_df_with_link[from_foreign_key.column] == to_df[from_foreign_key.to.column]) \
+                .select(columns) \
+                .filter(F.col(to_hkey_column_name).isNotNull())) \
             .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
-            .withColumn(self.conventions.load_date_column_name(), current_timestamp) \
-            .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
-            .select(columns)
+            .cache()
 
-        join_condition = link_df[self.conventions.hkey_column_name()] == joined_df[self.conventions.hkey_column_name()]
-        joined_df = joined_df \
-            .join(link_df, join_condition, how='left_anti') \
-            .distinct()
+        #
+        # Add new entries to LNK-table.
+        # We exclude all entries which are already present in LNK-table.
+        #
+        linked_df_new_lnk_entries = linked_df \
+            .alias("linked_df") \
+            .dropDuplicates([self.conventions.hkey_column_name()]) \
+            .join(link_df, F.col(f'linked_df.{self.conventions.hkey_column_name()}') == link_df[self.conventions.hkey_column_name()], how="anti") \
+            .select(link_df.columns).cache()
 
+        # write new LNK-table entries to table
         bucket_columns = [self.conventions.hkey_column_name()]
-        self.__write_table(joined_df, self.config.raw_database_name, link_table_name, bucket_columns=bucket_columns, mode="append")
+        self.__write_table(linked_df_new_lnk_entries, self.config.raw_database_name, link_table_name, bucket_columns=bucket_columns, mode="append")
 
-        update_df = staged_from_df \
-            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.UPDATE) \
-            .alias('l') \
+        # effectitivty satellite DataFrame with new entries
+        sat_effectivity_new_df = linked_df \
+            .withColumn(self.conventions.deleted_column_name(), F.lit(False)) \
+            .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash([self.conventions.deleted_column_name()])) \
+            .select(sat_effectivity_df.columns)
 
-        before_update_df = staged_from_df \
-            .filter(staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.BEFORE_UPDATE) \
-            .alias('r') \
+        #
+        # Delete old links
+        #
+        link_df = link_df.union(linked_df_new_lnk_entries)
+        # get all links that were previously connected to the from_hkey_column_name
+        prev_links = link_df.join(from_df.select(from_hkey_column_name), from_df[from_hkey_column_name] == link_df[from_hkey_column_name]) \
+            .drop(from_df[from_hkey_column_name])
 
-        if self.config.optimize_partitioning:
-            update_df = update_df.repartition(self.config.partition_size, from_hkey_column_name)
-            before_update_df = before_update_df.repartition(self.config.partition_size, from_hkey_column_name)
+        # add rows to linked_df where from_foreign_key.column is None
+        linked_df = linked_df.union(
+            from_df. \
+                filter(from_df[from_foreign_key.column].isNull()) \
+                .withColumn(to_hkey_column_name, F.lit(None)) \
+                .withColumn(self.conventions.hkey_column_name(), F.lit(None)) \
+                .select([
+                    from_hkey_column_name, 
+                    to_hkey_column_name,
+                    self.conventions.load_date_column_name(),
+                    self.conventions.record_source_column_name(),
+                    self.conventions.hkey_column_name()
+                ])
+        )
+        
+        # get all links to be deleted
+        delete_old_links = prev_links.join(linked_df, (
+            (prev_links[from_hkey_column_name] == linked_df[from_hkey_column_name]) &
+            ((prev_links[to_hkey_column_name] != linked_df[to_hkey_column_name]) |
+            ((prev_links[to_hkey_column_name].isNotNull()) & (linked_df[to_hkey_column_name].isNull()))))) \
+            .drop(linked_df[self.conventions.hkey_column_name()]) \
+            .drop(prev_links[self.conventions.load_date_column_name()]) \
+            .withColumn(self.conventions.deleted_column_name(), F.lit(True)) \
+            .withColumn(self.conventions.hdiff_column_name(), DataVaultFunctions.hash([self.conventions.deleted_column_name()])) \
+            .select(sat_effectivity_df.columns)
 
-        update_df.cache()
-        before_update_df.cache()
+        # filter rows where the deleted flag has not changed
+        eff_full_df = sat_effectivity_new_df \
+            .union(delete_old_links) \
+            .union(sat_effectivity_df) \
+            .distinct() \
+            .withColumn("prev", F.lag(self.conventions.deleted_column_name(), 1).over(Window.partitionBy(self.conventions.hkey_column_name()).orderBy(self.conventions.load_date_column_name()))) \
+            .filter((F.col("prev") != F.col(self.conventions.deleted_column_name())) | F.col("prev").isNull()) \
+            .drop("prev")
 
-        join_condition = [update_df[from_hkey_column_name] == before_update_df[from_hkey_column_name]]
-        # covers the following cases:
-        #   1.  BEFORE_UPDATE reference == NOT NULL & UPDATE reference == NULL
-        #       -> set delete = True prev. reference
-        #   2.  BEFORE_UPDATE reference == NULL & UPDATE reference == NOT NULL
-        #       -> set delete = False current reference
-        #   3.  BEFORE_UPDATE reference == NOT NULL & UPDATE reference == NOT NULL & BEFORE_UPDATE reference != UPDATE reference
-        #       -> set delete = False current reference
-        #       -> set delete = True prev. reference
-        #   4.  SNAPSHOT | CREATE
-        #       -> set delete = False current reference
-        joined_df = update_df \
-            .join(before_update_df, join_condition) \
-            .filter((F.col(f'l.{from_foreign_key.column}').isNull()) & (F.col(f'r.{from_foreign_key.column}').isNotNull())) \
-            .select("r.*") \
-            .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.DELETE)) \
-            .union(
-                update_df \
-                    .join(before_update_df, join_condition) \
-                    .filter((F.col(f'l.{from_foreign_key.column}').isNotNull()) & (F.col(f'r.{from_foreign_key.column}').isNull())) \
-                    .select("l.*") \
-                    .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.CREATE))
-            ) \
-            .union(
-                update_df \
-                    .join(before_update_df, join_condition) \
-                    .filter(
-                        (F.col(f'l.{from_foreign_key.column}').isNotNull()) & 
-                        (F.col(f'r.{from_foreign_key.column}').isNotNull()) &
-                        (F.col(f'l.{from_foreign_key.column}') != F.col(f'r.{from_foreign_key.column}'))
-                    ) \
-                    .select("l.*") \
-                    .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.CREATE))
-            ) \
-            .union(
-                update_df \
-                    .join(before_update_df, join_condition) \
-                    .filter(
-                        (F.col(f'l.{from_foreign_key.column}').isNotNull()) & 
-                        (F.col(f'r.{from_foreign_key.column}').isNotNull()) &
-                        (F.col(f'l.{from_foreign_key.column}') != F.col(f'r.{from_foreign_key.column}'))
-                    ) \
-                    .select("r.*") \
-                    .withColumn(self.conventions.cdc_operation_column_name(), F.lit(self.conventions.CDC_OPS.DELETE))
-            ) \
-            .union(
-                staged_from_df \
-                    .filter(
-                        (staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.CREATE) |
-                        (staged_from_df[self.conventions.cdc_operation_column_name()] == self.conventions.CDC_OPS.SNAPSHOT)
-                    )
-            )
-
-        columns = [
-            self.conventions.hkey_column_name(), self.conventions.load_date_column_name(), 
-            self.conventions.record_source_column_name(), self.conventions.cdc_operation_column_name(), 
-            self.conventions.cdc_load_date_column_name(), from_hkey_column_name, to_hkey_column_name
+        join_condition = [
+            sat_effectivity_df[self.conventions.hkey_column_name()] == eff_full_df[self.conventions.hkey_column_name()], \
+            sat_effectivity_df[self.conventions.load_date_column_name()] == eff_full_df[self.conventions.load_date_column_name()]
         ]
 
-        # TODO jb: join may be removed (performance optimization)
-        join_condition = joined_df[from_foreign_key.column] == hub_df[from_foreign_key.to.column]
-        joined_df = joined_df \
-            .join(hub_df, join_condition, how="left") \
-            .withColumnRenamed(self.conventions.load_date_column_name(), self.conventions.cdc_load_date_column_name()) \
-            .withColumn(self.conventions.hkey_column_name(), DataVaultFunctions.hash([from_hkey_column_name, to_hkey_column_name])) \
-            .withColumn(self.conventions.load_date_column_name(), current_timestamp) \
-            .withColumn(self.conventions.record_source_column_name(), F.lit(self.config.source_system_name)) \
-            .select(columns) \
+        eff_full_df = eff_full_df\
+            .join(sat_effectivity_df, join_condition, how='left_anti') \
             .distinct()
 
-        self.load_effectivity_satellite_from_prepared_stage_dataframe(joined_df, sat_effectivity_table_name)
+        bucket_columns = [self.conventions.hkey_column_name(), self.conventions.load_date_column_name()]
+        self.__write_table(eff_full_df, self.config.raw_database_name, sat_effectivity_table_name, bucket_columns=bucket_columns, mode="append")
     
     def load_link_from_prepared_stage_table(self, staging_table_name: str, links: List[LinkedHubDefinition], link_table_name: str, satellites: List[SatelliteDefinition]) -> None:
         """
