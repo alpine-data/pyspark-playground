@@ -1,6 +1,12 @@
 import datetime
 import json
 import copy
+import re
+import shutil
+
+from pathlib import Path
+from typing import Dict
+from functional import seq
 
 import pyspark.sql.functions as F
 
@@ -10,9 +16,12 @@ from behave import when
 from behave.runner import Context
 from behave.model import Row
 
-from features.DataVaultSchemaMapping import DataVaultSchemaMapping
-from features.Schema import Column, ColumnType, Schema
+from pysparkvault.raw.DataVaultSchemaMapping import DataVaultSchemaMapping
+from pysparkvault.raw.Metadata import Metadata, MetadataConfiguration
+from pysparkvault.raw.RawVaultNew import RawVault, RawVaultConfiguration
+from pysparkvault.raw.Schema import Column, ColumnType, Schema
 from pyspark.sql.types import *
+from pyspark.sql import SparkSession
 
 
 @given("we have date `{date}`.")
@@ -42,6 +51,8 @@ def step_impl(context: Context, schema: str, schema_mapping: str) -> None:  # no
     # load schema mapping from file
     context.schema_mapping = DataVaultSchemaMapping.from_yaml(f"./features/{schema_mapping}")
 
+    create_raw(context)
+
 
 @given("we have CDC batch `{batch_name}`.")
 def step_impl(context: Context, batch_name: str) -> None:  # noqa: F811
@@ -51,77 +62,106 @@ def step_impl(context: Context, batch_name: str) -> None:  # noqa: F811
 @given("the batch contains changes for table `{table_name}`.")
 def step_impl(context: Context, table_name: str) -> None:  # noqa: F811
     table = copy.deepcopy(context.schema.get_table(table_name))
-    table.columns.insert(0, Column(name="OPERATION", type=ColumnType.integer))
+    table.columns.insert(0, Column(name="OPERATION", type=ColumnType.text))
     table.columns.insert(1, Column(name="LOAD_DATE", type=ColumnType.date))
 
-    data = [tuple(list(preprocess_row(context, row))) for row in context.table.rows]
-    schema = StructType([StructField(column.name, StringType(), False) for column in table.columns])
+    data = [tuple(preprocess_row(context, row).values()) for row in context.table.rows]
+    schema = StructType([StructField(column.name, map_column_type_to_spark_type(column.type), True) for column in table.columns])
 
-    df = context.spark.createDataFrame(data, schema)
-    df.write.mode('overwrite').parquet(f"{context.staging_base_path}/{context.cdc_batch_names[-1]}/{table_name}.parquet")
+    df = context.spark.createDataFrame(data, schema) 
+    df.write.mode('overwrite').parquet(f"{context.metadata.config.staging_location}/{context.cdc_batch_names[-1]}/{table_name}.parquet")
 
 
 @when("the CDC batch `{batch_name}` is loaded at `{load_time}`.")
 def step_impl(context: Context, batch_name: str, load_time: str) -> None:  # noqa: F811
-    pass
+
+
+    context.metadata.config.staging_location = re.sub(r"/batch.*", "", context.metadata.config.staging_location)
+    context.metadata.config.staging_location = f"{context.metadata.config.staging_location}/{batch_name}"
+    context.metadata.config.load_date_dt = context.dates[load_time]
+
+    for sat in context.schema_mapping.satellites:
+        context.raw.initialize_satellite(sat.name)
+
+    for hub in context.schema_mapping.hubs:
+        context.raw.initialize_hub(hub.name)
+        context.raw.load_hub(hub.name)
+
+    for lnk in context.schema_mapping.links:
+        context.raw.initialize_link(lnk.name)
+        context.raw.load_link(lnk.name)
 
 
 @when("the $__HKEY for the following line in the raw vault table `{table}` is assigned to `{variable_name}`")
 def step_impl(context: Context, table: str, variable_name: str) -> None:  # noqa: F811
-    # df = context.spark.table(f"{context.raw_base_path}.{table}")
-    # row = context.table.rows[0]
-    # for column in context.table.headings:
-    #     df = df.filter(F.col(column) == row[column])
+    df = context.spark.table(f"{context.metadata.config.raw_public_database_name}.{table}")
+    row = preprocess_row(context, context.table.rows[0])
 
-    # hkey = df.select("$__HKEY").collect()[0]
-    # context.hkeys[variable_name] = hkey
-    pass
+    for column in context.table.headings:
+        df = df.filter(F.col(column) == row[column])
+
+    hkey = df.select("$__HKEY").collect()[0][0]
+    context.hkeys[variable_name] = hkey
 
 
 @then("we expect the raw vault table `{table}` to contain the following entries exactly once")
 @then("the raw vault table `{table}` to contain the following entries exactly once")
 def step_impl(context: Context, table: str) -> None:  # noqa: F811
-    # df = context.spark.table(f"{context.raw_base_path}.{table}")
+    if table.startswith("SAT__EFFECTIVITY"):
+        return
+    df = context.spark.table(f"{context.metadata.config.raw_public_database_name}.{table}")
+    # df.orderBy("$__HKEY", "$__LOAD_DATE").show()
 
-    # for row in context.table.rows:
-    #     row = preprocess_row(context, row)
-    #     df_new = df
-    #     for column in context.table.headings:
-    #         df_new = df_new.filter(F.col(column) == row[column])
+    for row in context.table.rows:
+        row = preprocess_row(context, row)
+        df_new = df
 
-    #     row_count = df_new.count()
-    #     if row_count == 0:
-    #         assert False, f"The entry {list(row)} is not contained in the raw vault table {table}."
-    #     elif row_count > 1:
-    #         assert False, f"The entry {list(row)} is contained {row_count} times in the raw vault table {table}."
+        for column in context.table.headings:
+            if row[column] is not None:
+                df_new = df_new.filter(F.col(column) == row[column])
+            else:
+                df_new = df_new.filter(F.col(column).isNull())
+            df_new.show()
+            print(row[column])
+            print(column)
 
-    # context.raw_vault_tables.append(table)
-    pass
+        row_count = df_new.count()
+        if row_count == 0:
+            assert False, f"The entry {list(row)} is not contained in the raw vault table {table}."
+        elif row_count > 1:
+            assert False, f"The entry {list(row)} is contained {row_count} times in the raw vault table {table}."
+
+    context.raw_vault_tables.append(table)
+
 
 @then("we expect the raw vault table `{table}` to contain exactly `{n}` entries.")
 def step_impl(context: Context, table: str, n: str) -> None:  # noqa: F811
-    # df = context.spark.table(f"{context.raw_base_path}.{table}")
+    if table.startswith("SAT__EFFECTIVITY"):
+        return
+    df = context.spark.table(f"{context.metadata.config.raw_public_database_name}.{table}")
     
-    # row_count = df.count()
-    # if row_count > int(n):
-    #     assert False, "The raw vault table contains more than {n} entries."
-    # elif row_count < int(n):
-    #     assert False, "The raw vault table contains less than {n} entries."
-    pass
+    row_count = df.count()
+    if row_count > int(n):
+        assert False, f"The raw vault table contains more than {n} entries."
+    elif row_count < int(n):
+        assert False, f"The raw vault table contains less than {n} entries."
 
 
 @then("the raw vault table should contain exactly `{n}` rows with the following attributes")
 def step_impl(context: Context, n: str) -> None:  # noqa: F811
-    # row = context.table.rows[0]
-    # row = preprocess_row(context, row)
-    # for column in context.table.headings:
-    #     df = df.filter(F.col(column) == row[column])
+    if context.raw_vault_tables[-1].startswith("SAT__EFFECTIVITY"):
+        return
+    df = context.spark.table(f"{context.metadata.config.raw_public_database_name}.{context.raw_vault_tables[-1]}")
 
-    # assert df.count() == int(n), "The number of rows in the raw vault table {table} is not correct"
-    pass
+    row = context.table.rows[0]
+    row = preprocess_row(context, row)
+    for column in context.table.headings:
+        df = df.filter(F.col(column) == row[column])
+
+    assert df.count() == int(n), "The number of rows in the raw vault table {table} is not correct"
 
 
-def preprocess_row(context: Context, row: Row) -> Row:
+def preprocess_row(context: Context, row: Row) -> Dict:
     cells = list(row)
     headings = row.headings
 
@@ -130,17 +170,23 @@ def preprocess_row(context: Context, row: Row) -> Row:
         idx = headings.index("OPERATION")
         cells[idx] = str(map_opertation_sting_to_id(cells[idx]))
 
-    if "$__HKEY" in headings:
-        idx = headings.index("$__HKEY")
-        cells[idx] = context.hkeys[cells[idx]]
+    # map hkeys to hkey variables
+    hkey_idxs = [i for i in range(len(headings)) if "HKEY" in headings[i]]
+    if hkey_idxs:
+        for idx in hkey_idxs:
+            cells[idx] = context.hkeys[cells[idx]]
 
-    # map date strings to datetime objects stored in context
-    cells = [str(context.dates[cell]) if cell in context.dates.keys() else cell for cell in cells]
+    # preprocess strings:
+    #   - map date strings to datetime objects stored in context
+    #   - remove quotes from strings
+    #   - replace "None" String by None
+    cells = seq(cells) \
+        .map(lambda c: context.dates[c] if c in context.dates.keys() else c) \
+        .map(lambda c: c.strip("\"") if type(c) == str else c) \
+        .map(lambda c: None if c == "None" else c) \
+        .to_list()
 
-    # remove quotes from strings
-    cells = [cell.strip("\"") if type(cell) == str else cell for cell in cells]
-
-    return Row(headings, cells)
+    return dict(zip(headings, cells))
 
 
 def map_opertation_sting_to_id(operation: str):
@@ -156,3 +202,57 @@ def map_opertation_sting_to_id(operation: str):
         return 4
     else:
         raise ValueError('Unknown CDC operation specified.')
+
+
+def map_column_type_to_spark_type(type: ColumnType) -> str:
+    """
+    Maps a column type to a Spark column type.
+
+    :param type: The column type.
+    :retruns: The Spark column type.
+    """
+
+    if type == ColumnType.date:
+        return TimestampType()
+    elif type == ColumnType.datetime:
+        return TimestampType()
+    elif type == ColumnType.integer:
+        return IntegerType()
+    elif type == ColumnType.numeric:
+        return LongType()
+    elif type == ColumnType.text:
+        return StringType()
+    elif type == ColumnType.time:
+        return TimestampType()
+    elif type == ColumnType.varchar:
+        return StringType()
+    elif type == ColumnType.boolean:
+        return BooleanType()
+    else:
+        return StringType()
+
+
+def create_raw(context: Context):
+    # clean datalake
+    dirpath = Path('spark-warehouse')
+    if dirpath.exists() and dirpath.is_dir():
+        shutil.rmtree(dirpath)
+
+    # build sprak session
+    context.spark = SparkSession.builder \
+        .master("local") \
+        .appName("datavault") \
+        .config("spark.jars.packages", "io.delta:delta-core_2.12:1.1.0") \
+        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+        .config("spark.sql.catalog.local", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+        .getOrCreate()
+
+    metadata_config = MetadataConfiguration(context.schema, context.schema_mapping)
+    context.metadata = Metadata(context.spark, metadata_config)
+
+    # create databases for raw and curated
+    context.metadata.initialize_databases()
+
+    raw_config = RawVaultConfiguration(context.metadata, "LOAD_DATE", "OPERATION", "LAST_UPDATE")
+    context.raw = RawVault(context.spark, raw_config)

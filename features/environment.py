@@ -3,8 +3,13 @@ import shutil
 
 from behave import *
 from behave.log_capture import capture
+from behave.model import Scenario
 
-from pyspark.sql import SparkSession
+
+def before_all(context):
+    userdata = context.config.userdata
+    continue_after_failed = userdata.getbool("runner.continue_after_failed_step", False)
+    Scenario.continue_after_failed_step = continue_after_failed
 
 
 @capture()
@@ -16,19 +21,6 @@ def before_feature(context, feature):
     context.dates = {}
     context.batches = {}
     context.hkeys = {}
-
-    context.staging_base_path = f"{context.working_directory}/staging"
-    context.staging_prepared_base_path = f"{context.working_directory}/staging_prepared"
-    context.raw_base_path = f"{context.working_directory}/raw"
-
-    context.spark = SparkSession.builder \
-        .master("local") \
-        .appName("datavault") \
-        .config("spark.jars.packages", "io.delta:delta-core_2.12:1.1.0") \
-        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
-        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-        .config("spark.sql.catalog.local", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-        .getOrCreate()
 
 
 @capture()

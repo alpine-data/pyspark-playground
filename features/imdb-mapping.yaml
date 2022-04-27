@@ -7,7 +7,7 @@ hubs:
   - name: HUB__ACTORS
     source_table: actors
     business_keys:
-      - NAME
+      - ID
   - name: HUB__DIRECTORS
     source_table: directors
     business_keys:
@@ -36,3 +36,16 @@ links:
         source_foreign_key:
           column: ID
           table: actors
+satellites:
+  - hub: HUB__MOVIES
+    name: SAT__MOVIES
+    private: false
+    source_table: movies
+  - hub: HUB__ACTORS
+    name: SAT__ACTORS
+    private: false
+    source_table: actors
+  - hub: HUB__DIRECTORS
+    name: SAT__DIRECTORS
+    private: false
+    source_table: directors

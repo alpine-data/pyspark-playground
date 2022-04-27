@@ -6,7 +6,7 @@
             "columns": [
                 {
                     "name": "ID",
-                    "type": "long"
+                    "type": "text"
                 },
                 {
                     "name": "NAME",
@@ -14,19 +14,19 @@
                 },
                 {
                     "name": "YEAR",
-                    "type": "integer"
+                    "type": "text"
                 },
                 {
                     "name": "DIRECTOR",
-                    "type": "long"
+                    "type": "text"
                 },
                 {
                     "name": "RATING",
-                    "type": "integer"
+                    "type": "text"
                 },
                 {
                     "name": "RANK",
-                    "type": "numeric"
+                    "type": "text"
                 },
                 {
                     "name": "LAST_UPDATE",
@@ -51,7 +51,7 @@
             "columns": [
                 {
                     "name": "ID",
-                    "type": "long"
+                    "type": "text"
                 },
                 {
                     "name": "NAME",
@@ -60,6 +60,10 @@
                 {
                     "name": "COUNTRY",
                     "type": "text"
+                },
+                {
+                    "name": "LAST_UPDATE",
+                    "type": "date"
                 }
             ],
             "primaryKey": [
@@ -72,7 +76,7 @@
             "columns": [
                 {
                     "name": "ID",
-                    "type": "long"
+                    "type": "text"
                 },
                 {
                     "name": "NAME",
@@ -81,6 +85,10 @@
                 {
                     "name": "COUNTRY",
                     "type": "text"
+                },
+                {
+                    "name": "LAST_UPDATE",
+                    "type": "date"
                 }
             ],
             "primaryKey": [
@@ -93,11 +101,15 @@
             "columns": [
                 {
                     "name": "MOVIE_ID",
-                    "type": "long"
+                    "type": "text"
                 },
                 {
                     "name": "ACTOR_ID",
-                    "type": "long"
+                    "type": "text"
+                },
+                {
+                    "name": "LAST_UPDATE",
+                    "type": "date"
                 }
             ],
             "primaryKey": [

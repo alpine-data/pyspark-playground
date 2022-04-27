@@ -19,31 +19,31 @@ Feature: Raw Vault Loading
             | snapshot  | t0        | 3  | "The Dark Knight"            | 2008 | 3          | 9.0     | 104  | t0          |
             | snapshot  | t0        | 4  | "Star Wars: Episode V"       | 1980 | 4          | 8.7     | 485  | t0          |
         And the batch contains changes for table `actors`.
-            | OPERATION | LOAD_DATE | ID | NAME             | COUNTRY   |
-            | snapshot  | t0        | 1  | "Tim Robbins"    | "USA"     |
-            | snapshot  | t0        | 2  | "Morgan Freeman" | "USA"     |
-            | snapshot  | t0        | 3  | "Bob Gunton"     | "USA"     |
-            | snapshot  | t0        | 4  | "William Sadler" | "USA"     |
-            | snapshot  | t0        | 5  | "Marlon Brando"  | "USA"     |
-            | snapshot  | t0        | 6  | "Al Pacino"      | "USA"     |
-            | snapshot  | t0        | 7  | "James Caan"     | "USA"     |
-            | snapshot  | t0        | 8  | "Christian Bale" | "USA"     |
+            | OPERATION | LOAD_DATE | ID | NAME             | COUNTRY   | LAST_UPDATE |
+            | snapshot  | t0        | 1  | "Tim Robbins"    | "USA"     | t0          |
+            | snapshot  | t0        | 2  | "Morgan Freeman" | "USA"     | t0          |
+            | snapshot  | t0        | 3  | "Bob Gunton"     | "USA"     | t0          |
+            | snapshot  | t0        | 4  | "William Sadler" | "USA"     | t0          |
+            | snapshot  | t0        | 5  | "Marlon Brando"  | "USA"     | t0          |
+            | snapshot  | t0        | 6  | "Al Pacino"      | "USA"     | t0          |
+            | snapshot  | t0        | 7  | "James Caan"     | "USA"     | t0          |
+            | snapshot  | t0        | 8  | "Christian Bale" | "USA"     | t0          |
         And the batch contains changes for table `directors`.
-            | OPERATION | LOAD_DATE | ID | NAME                     | COUNTRY   |
-            | snapshot  | t0        | 1  | "Frank Darabont"         | "USA"     |
-            | snapshot  | t0        | 2  | "Francis Ford Coppola"   | "USA"     |
-            | snapshot  | t0        | 3  | "Christopher Nolan"      | "USA"     |
-            | snapshot  | t0        | 4  | "Irvin Kershner"         | "USA"     |
+            | OPERATION | LOAD_DATE | ID | NAME                     | COUNTRY   | LAST_UPDATE |
+            | snapshot  | t0        | 1  | "Frank Darabont"         | "USA"     | t0          |
+            | snapshot  | t0        | 2  | "Francis Ford Coppola"   | "USA"     | t0          |
+            | snapshot  | t0        | 3  | "Christopher Nolan"      | "USA"     | t0          |
+            | snapshot  | t0        | 4  | "Irvin Kershner"         | "USA"     | t0          |
         And the batch contains changes for table `castings`.
-            | OPERATION | LOAD_DATE | MOVIE_ID  | ACTOR_ID  |
-            | snapshot  | t0        | 1         | 1         |
-            | snapshot  | t0        | 1         | 2         |
-            | snapshot  | t0        | 2         | 3         |
-            | snapshot  | t0        | 2         | 4         |
-            | snapshot  | t0        | 3         | 5         |
-            | snapshot  | t0        | 3         | 6         |
-            | snapshot  | t0        | 4         | 7         |
-            | snapshot  | t0        | 4         | 8         |
+            | OPERATION | LOAD_DATE | MOVIE_ID  | ACTOR_ID  | LAST_UPDATE |
+            | snapshot  | t0        | 1         | 1         | t0          |
+            | snapshot  | t0        | 1         | 2         | t0          |
+            | snapshot  | t0        | 2         | 3         | t0          |
+            | snapshot  | t0        | 2         | 4         | t0          |
+            | snapshot  | t0        | 3         | 5         | t0          |
+            | snapshot  | t0        | 3         | 6         | t0          |
+            | snapshot  | t0        | 4         | 7         | t0          |
+            | snapshot  | t0        | 4         | 8         | t0          |
 
         Given we have CDC batch `batch_2`.
         And the batch contains changes for table `movies`.
@@ -69,56 +69,140 @@ Feature: Raw Vault Loading
             | delete        | t2        | 3  | "The Dark Knight"            | 2008 | 3          | 9.3     | 45   | t0          |
             | create        | t3        | 3  | "The Dark Knight"            | 2008 | 3          | 9.0     | 104  | t0          |
         And the batch contains changes for table `actors`.
-            | OPERATION | LOAD_DATE | ID | NAME             | COUNTRY   |
-            | create    | t1        | 9  | "John Travolta"  | "USA"     |
-            | create    | t1        | 10 | "Liam Neeson"    | "USA"     |
+            | OPERATION | LOAD_DATE | ID | NAME             | COUNTRY   | LAST_UPDATE |
+            | create    | t1        | 9  | "John Travolta"  | "USA"     | t0          |
+            | create    | t1        | 10 | "Liam Neeson"    | "USA"     | t0          |
         And the batch contains changes for table `directors`.
-            | OPERATION | LOAD_DATE | ID | NAME                 | COUNTRY   |
-            | create    | t1        | 5  | "Quentin Terintino"  | "USA"     |
+            | OPERATION | LOAD_DATE | ID | NAME                 | COUNTRY   | LAST_UPDATE |
+            | create    | t1        | 5  | "Quentin Terintino"  | "USA"     | t0          |
         And the batch contains changes for table `castings`.
-            | OPERATION | LOAD_DATE | MOVIE_ID  | ACTOR_ID  |
-            | create    | t1        | 5         | 9         |
-            | create    | t1        | 5         | 10        |
+            | OPERATION | LOAD_DATE | MOVIE_ID  | ACTOR_ID  | LAST_UPDATE |
+            | create    | t1        | 5         | 9         | t0          |
+            | create    | t1        | 5         | 10        | t0          |
 
         Given we have CDC batch `batch_3`.
         And the batch contains changes for table `movies`.
             | OPERATION     | LOAD_DATE | ID | NAME             | YEAR | DIRECTOR   | RATING  | RANK | LAST_UPDATE |
             | delete        | t5        | 5  | "Pulp Fiction"   | 1994 | 5          | 8.9     | 138  | t0          |
         And the batch contains changes for table `actors`.
-            | OPERATION | LOAD_DATE | ID | NAME             | COUNTRY   |
-            | delete    | t5        | 9  | "John Travolta"  | "USA"     |
-            | delete    | t5        | 10 | "Liam Neeson"    | "USA"     |
+            | OPERATION | LOAD_DATE | ID | NAME             | COUNTRY   | LAST_UPDATE |
+            | delete    | t5        | 9  | "John Travolta"  | "USA"     | t0          |
+            | delete    | t5        | 10 | "Liam Neeson"    | "USA"     | t0          |
         And the batch contains changes for table `directors`.
-            | OPERATION | LOAD_DATE | ID | NAME                 | COUNTRY   |
-            | delete    | t5        | 5  | "Quentin Terintino"  | "USA"     |
+            | OPERATION | LOAD_DATE | ID | NAME                 | COUNTRY   | LAST_UPDATE |
+            | delete    | t5        | 5  | "Quentin Terintino"  | "USA"     | t0          |
         And the batch contains changes for table `castings`.
-            | OPERATION | LOAD_DATE | MOVIE_ID  | ACTOR_ID  |
-            | delete    | t5        | 5         | 9         |
-            | delete    | t5        | 5         | 10        |
+            | OPERATION | LOAD_DATE | MOVIE_ID  | ACTOR_ID  | LAST_UPDATE |
+            | delete    | t5        | 5         | 9         | t0          |
+            | delete    | t5        | 5         | 10        | t0          |
 
     Scenario: Simple raw vault loading in correct order
         When the CDC batch `batch_1` is loaded at `t1`.
         And the CDC batch `batch_2` is loaded at `t2`.
         And the CDC batch `batch_3` is loaded at `t3`.
         And the $__HKEY for the following line in the raw vault table `HUB__MOVIES` is assigned to `hk_0`
-            | NAME                          | YEAR | $__LOAD_DATE |
-            | "Star Wars: Episode V"        | 1980 | t0           |
+            | NAME                          | YEAR |
+            | "The Shawshank Redemption"    | 1994 |
+        And the $__HKEY for the following line in the raw vault table `HUB__MOVIES` is assigned to `hk_1`
+            | NAME                          | YEAR |
+            | "The Godfather"               | 1972 |
+        And the $__HKEY for the following line in the raw vault table `HUB__MOVIES` is assigned to `hk_2`
+            | NAME                          | YEAR |
+            | "The Dark Knight"             | 2008 |
+        And the $__HKEY for the following line in the raw vault table `HUB__MOVIES` is assigned to `hk_3`
+            | NAME                          | YEAR |
+            | "Star Wars: Episode V"        | 1980 |
+        And the $__HKEY for the following line in the raw vault table `HUB__MOVIES` is assigned to `hk_4`
+            | NAME                          | YEAR |
+            | "Pulp Fiction"                | 1994 |
+        And the $__HKEY for the following line in the raw vault table `HUB__ACTORS` is assigned to `hk_5`
+            | ID    |
+            | 1     |
+        And the $__HKEY for the following line in the raw vault table `HUB__DIRECTORS` is assigned to `hk_6`
+            | ID    |
+            | 1     |
+        And the $__HKEY for the following line in the raw vault table `LNK__MOVIES_DIRECTORS` is assigned to `hk_7`
+            | MOVIES__HKEY  | DIRECTORS__HKEY   |
+            | hk_0          | hk_6              |
 
         Then we expect the raw vault table `HUB__MOVIES` to contain the following entries exactly once:
-            | $__HKEY   | NAME                          | YEAR | $__LOAD_DATE |
-            | hk_0      | "Star Wars: Episode V"        | 1980 | t0           |
-
+            | $__HKEY   | NAME                          | YEAR |
+            | hk_0      | "The Shawshank Redemption"    | 1994 |
+            | hk_1      | "The Godfather"               | 1972 |
+            | hk_2      | "The Dark Knight"             | 2008 |
+            | hk_3      | "Star Wars: Episode V"        | 1980 |
+            | hk_4      | "Pulp Fiction"                | 1994 |
         And we expect the raw vault table `HUB__MOVIES` to contain exactly `5` entries.
+
+        Then we expect the raw vault table `HUB__ACTORS` to contain the following entries exactly once:
+            | $__HKEY   | ID    |
+            | hk_5      | 1     |
+        And we expect the raw vault table `HUB__ACTORS` to contain exactly `10` entries.
+
+        Then we expect the raw vault table `HUB__DIRECTORS` to contain the following entries exactly once:
+            | $__HKEY   | ID    |
+            | hk_6      | 1     |
+        And we expect the raw vault table `HUB__DIRECTORS` to contain exactly `5` entries.
+
+        Then we expect the raw vault table `LNK__MOVIES_DIRECTORS` to contain the following entries exactly once:
+            | $__HKEY   | MOVIES__HKEY  | DIRECTORS__HKEY   |
+            | hk_7      | hk_0          | hk_6              |
+        And we expect the raw vault table `LNK__MOVIES_DIRECTORS` to contain exactly `6` entries.
 
         And the raw vault table `SAT__MOVIES` to contain the following entries exactly once:
             | $__HKEY   | ID | DIRECTOR | RATING  | RANK | $__LOAD_DATE |
-            | hk_0      | 4  | 4        | 8.7     | 485  | t0           |
-            | hk_0      | 4  | 4        | 8.4     | 344  | t1           |
+            | hk_0      | 1  | 1        | 9.3     | 64   | t0           |
+            | hk_0      | 1  | 1        | 9.6     | 5    | t1           |
+            | hk_0      | 1  | None     | 9.6     | 5    | t2           |
+            | hk_0      | 1  | 2        | 9.6     | 5    | t3           |
+            | hk_0      | 1  | 1        | 9.6     | 5    | t4           |
+            | hk_1      | 2  | 2        | 9.2     | 94   | t0           |
+            | hk_1      | 2  | 2        | 9.1     | 104  | t1           |
+            | hk_1      | 2  | None     | 9.1     | 104  | t2           |
+            | hk_2      | 3  | 3        | 9.0     | 104  | t0           |
+            | hk_2      | 3  | 3        | 9.3     | 45   | t1           |
+            | hk_2      | 3  | 3        | 9.0     | 104  | t3           |
+            | hk_3      | 4  | 4        | 8.7     | 485  | t0           |
+            | hk_3      | 4  | 4        | 8.4     | 344  | t1           |
+            | hk_4      | 5  | 5        | 8.9     | 138  | t1           |
+        And we expect the raw vault table `SAT__MOVIES` to contain exactly `14` entries.
 
-        And the raw vault table should contain exactly `2` rows with the following attributes:
-            | $__HKEY |
-            | hk_0    |
+        And the raw vault table `SAT__ACTORS` to contain the following entries exactly once:
+            | $__HKEY   | NAME              | COUNTRY |
+            | hk_5      | "Tim Robbins"     | "USA"   |
+        And we expect the raw vault table `SAT__ACTORS` to contain exactly `10` entries.
+
+        And the raw vault table `SAT__DIRECTORS` to contain the following entries exactly once:
+            | $__HKEY   | NAME              | COUNTRY |
+            | hk_6      | "Frank Darabont"  | "USA"   |
+        And we expect the raw vault table `SAT__DIRECTORS` to contain exactly `5` entries.
 
         And the raw vault table `SAT__EFFECTIVITY__MOVIES` to contain the following entries exactly once:
             | $__HKEY | $__DELETED    | $__LOAD_DATE   |
             | hk_0    | False         | t0             |
+            | hk_1    | False         | t0             |
+            | hk_1    | True          | t3             |
+            | hk_2    | False         | t0             |
+            | hk_2    | True          | t2             |
+            | hk_2    | False         | t3             |
+            | hk_3    | False         | t0             |
+            | hk_4    | False         | t1             |
+            | hk_4    | True          | t5             |
+        And we expect the raw vault table `SAT__EFFECTIVITY__MOVIES` to contain exactly `9` entries.
+            
+        And the raw vault table `SAT__EFFECTIVITY__ACTORS` to contain the following entries exactly once:
+            | $__HKEY | $__DELETED    | $__LOAD_DATE   |
+            | hk_5    | False         | t0             |
+        And we expect the raw vault table `SAT__EFFECTIVITY__ACTORS` to contain exactly `10` entries.
+
+        And the raw vault table `SAT__EFFECTIVITY__DIRECTORS` to contain the following entries exactly once:
+            | $__HKEY | $__DELETED    | $__LOAD_DATE   |
+            | hk_6    | False         | t0             |
+        And we expect the raw vault table `SAT__EFFECTIVITY__DIRECTORS` to contain exactly `5` entries.
+
+        And the raw vault table `SAT__EFFECTIVITY__MOVIES_DIRECTORS` to contain the following entries exactly once:
+            | $__HKEY | $__DELETED    | $__LOAD_DATE   |
+            | hk_6    | False         | t0             |
+            | hk_6    | True          | t2             |
+            | hk_6    | False         | t3             |
+        And we expect the raw vault table `SAT__EFFECTIVITY__MOVIES_DIRECTORS` to contain exactly `10` entries.
