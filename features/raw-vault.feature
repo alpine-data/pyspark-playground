@@ -177,7 +177,14 @@ Feature: Raw Vault Loading
             | hk_6      | "Frank Darabont"  | "USA"   |
         And we expect the raw vault table `SAT__DIRECTORS` to contain exactly `5` entries.
 
-        And the raw vault table `SAT__EFFECTIVITY__MOVIES` to contain the following entries exactly once:
+        And the raw vault table `SAT__EFFECTIVITY_MOVIES_DIRECTORS` to contain the following entries exactly once:
+            | $__HKEY | $__DELETED    | $__LOAD_DATE   |
+            | hk_7    | False         | t0             |
+            | hk_7    | True          | t2             |
+            | hk_7    | False         | t4             |
+        And we expect the raw vault table `SAT__EFFECTIVITY_MOVIES_DIRECTORS` to contain exactly `13` entries.
+
+        And the raw vault table `SAT__EFFECTIVITY_MOVIES` to contain the following entries exactly once:
             | $__HKEY | $__DELETED    | $__LOAD_DATE   |
             | hk_0    | False         | t0             |
             | hk_1    | False         | t0             |
@@ -188,21 +195,14 @@ Feature: Raw Vault Loading
             | hk_3    | False         | t0             |
             | hk_4    | False         | t1             |
             | hk_4    | True          | t5             |
-        And we expect the raw vault table `SAT__EFFECTIVITY__MOVIES` to contain exactly `9` entries.
+        And we expect the raw vault table `SAT__EFFECTIVITY_MOVIES` to contain exactly `9` entries.
             
-        And the raw vault table `SAT__EFFECTIVITY__ACTORS` to contain the following entries exactly once:
+        And the raw vault table `SAT__EFFECTIVITY_ACTORS` to contain the following entries exactly once:
             | $__HKEY | $__DELETED    | $__LOAD_DATE   |
             | hk_5    | False         | t0             |
-        And we expect the raw vault table `SAT__EFFECTIVITY__ACTORS` to contain exactly `10` entries.
+        And we expect the raw vault table `SAT__EFFECTIVITY_ACTORS` to contain exactly `10` entries.
 
-        And the raw vault table `SAT__EFFECTIVITY__DIRECTORS` to contain the following entries exactly once:
+        And the raw vault table `SAT__EFFECTIVITY_DIRECTORS` to contain the following entries exactly once:
             | $__HKEY | $__DELETED    | $__LOAD_DATE   |
             | hk_6    | False         | t0             |
-        And we expect the raw vault table `SAT__EFFECTIVITY__DIRECTORS` to contain exactly `5` entries.
-
-        And the raw vault table `SAT__EFFECTIVITY__MOVIES_DIRECTORS` to contain the following entries exactly once:
-            | $__HKEY | $__DELETED    | $__LOAD_DATE   |
-            | hk_6    | False         | t0             |
-            | hk_6    | True          | t2             |
-            | hk_6    | False         | t3             |
-        And we expect the raw vault table `SAT__EFFECTIVITY__MOVIES_DIRECTORS` to contain exactly `10` entries.
+        And we expect the raw vault table `SAT__EFFECTIVITY_DIRECTORS` to contain exactly `5` entries.

@@ -51,7 +51,7 @@ def step_impl(context: Context, schema: str, schema_mapping: str) -> None:  # no
     # load schema mapping from file
     context.schema_mapping = DataVaultSchemaMapping.from_yaml(f"./features/{schema_mapping}")
 
-    create_raw(context)
+    create_raw_vault(context)
 
 
 @given("we have CDC batch `{batch_name}`.")
@@ -107,10 +107,7 @@ def step_impl(context: Context, table: str, variable_name: str) -> None:  # noqa
 @then("we expect the raw vault table `{table}` to contain the following entries exactly once")
 @then("the raw vault table `{table}` to contain the following entries exactly once")
 def step_impl(context: Context, table: str) -> None:  # noqa: F811
-    if table.startswith("SAT__EFFECTIVITY"):
-        return
     df = context.spark.table(f"{context.metadata.config.raw_public_database_name}.{table}")
-    # df.orderBy("$__HKEY", "$__LOAD_DATE").show()
 
     for row in context.table.rows:
         row = preprocess_row(context, row)
@@ -121,36 +118,29 @@ def step_impl(context: Context, table: str) -> None:  # noqa: F811
                 df_new = df_new.filter(F.col(column) == row[column])
             else:
                 df_new = df_new.filter(F.col(column).isNull())
-            df_new.show()
-            print(row[column])
-            print(column)
 
         row_count = df_new.count()
         if row_count == 0:
-            assert False, f"The entry {list(row)} is not contained in the raw vault table {table}."
+            assert False, f"The entry {row.values()} is not contained in the raw vault table {table}."
         elif row_count > 1:
-            assert False, f"The entry {list(row)} is contained {row_count} times in the raw vault table {table}."
+            assert False, f"The entry {row.values()} is contained {row_count} times in the raw vault table {table}."
 
     context.raw_vault_tables.append(table)
 
 
 @then("we expect the raw vault table `{table}` to contain exactly `{n}` entries.")
 def step_impl(context: Context, table: str, n: str) -> None:  # noqa: F811
-    if table.startswith("SAT__EFFECTIVITY"):
-        return
     df = context.spark.table(f"{context.metadata.config.raw_public_database_name}.{table}")
     
     row_count = df.count()
     if row_count > int(n):
-        assert False, f"The raw vault table contains more than {n} entries."
+        assert False, f"The raw vault table contains more ({row_count}) than {n} entries."
     elif row_count < int(n):
-        assert False, f"The raw vault table contains less than {n} entries."
+        assert False, f"The raw vault table contains less ({row_count}) than {n} entries."
 
 
 @then("the raw vault table should contain exactly `{n}` rows with the following attributes")
 def step_impl(context: Context, n: str) -> None:  # noqa: F811
-    if context.raw_vault_tables[-1].startswith("SAT__EFFECTIVITY"):
-        return
     df = context.spark.table(f"{context.metadata.config.raw_public_database_name}.{context.raw_vault_tables[-1]}")
 
     row = context.table.rows[0]
@@ -232,7 +222,7 @@ def map_column_type_to_spark_type(type: ColumnType) -> str:
         return StringType()
 
 
-def create_raw(context: Context):
+def create_raw_vault(context: Context):
     # clean datalake
     dirpath = Path('spark-warehouse')
     if dirpath.exists() and dirpath.is_dir():
