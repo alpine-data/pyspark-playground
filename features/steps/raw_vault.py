@@ -124,8 +124,8 @@ def step_impl(context: Context, table: str) -> None:  # noqa: F811
 def step_impl(context: Context, table: str) -> None:  # noqa: F811
     df = context.spark.table(f"{context.metadata.config.raw_public_database_name}.{table}")
 
-    # if table == "SAT__EFFECTIVITY_MOVIES_DIRECTORS":
-    #     df.show()
+    if table == "SAT__EFFECTIVITY_MOVIES_DIRECTORS":
+        df.show()
 
     for row in context.table.rows:
         row = preprocess_row(context, row)
