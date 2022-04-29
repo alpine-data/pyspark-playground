@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 from typing import Dict
 from functional import seq
+from pyspark import SQLContext
 
 import pyspark.sql.functions as F
 
@@ -51,16 +52,19 @@ def step_impl(context: Context, schema: str, schema_mapping: str) -> None:  # no
     # load schema mapping from file
     context.schema_mapping = DataVaultSchemaMapping.from_yaml(f"./features/{schema_mapping}")
 
-    create_raw_vault(context)
-
 
 @given("we have CDC batch `{batch_name}`.")
 def step_impl(context: Context, batch_name: str) -> None:  # noqa: F811
-    context.cdc_batch_names.append(batch_name)
+    if not batch_name in context.cdc_batch_names:
+        context.cdc_batch_names.append(batch_name)
 
 
 @given("the batch contains changes for table `{table_name}`.")
 def step_impl(context: Context, table_name: str) -> None:  # noqa: F811
+    if not context.created_metadata:
+        create_metadata(context)
+        context.created_metadata = True
+
     table = copy.deepcopy(context.schema.get_table(table_name))
     table.columns.insert(0, Column(name="OPERATION", type=ColumnType.text))
     table.columns.insert(1, Column(name="LOAD_DATE", type=ColumnType.date))
@@ -74,7 +78,9 @@ def step_impl(context: Context, table_name: str) -> None:  # noqa: F811
 
 @when("the CDC batch `{batch_name}` is loaded at `{load_time}`.")
 def step_impl(context: Context, batch_name: str, load_time: str) -> None:  # noqa: F811
-
+    if not context.created_raw_vault:
+        create_raw_vault(context)
+        context.created_raw_vault = True
 
     context.metadata.config.staging_location = re.sub(r"/batch.*", "", context.metadata.config.staging_location)
     context.metadata.config.staging_location = f"{context.metadata.config.staging_location}/{batch_name}"
@@ -104,10 +110,22 @@ def step_impl(context: Context, table: str, variable_name: str) -> None:  # noqa
     context.hkeys[variable_name] = hkey
 
 
+@then("the raw vault table `{table}` is created.")
+def step_impl(context: Context, table: str) -> None:  # noqa: F811
+    sqlContext = SQLContext(context.spark.sparkContext)
+    table_names_in_db = sqlContext.tableNames(context.metadata.config.raw_public_database_name)
+
+    table_exists = table.lower() in table_names_in_db
+    assert table_exists, f"The table {table} does not exist in the raw vault."
+
+
 @then("we expect the raw vault table `{table}` to contain the following entries exactly once")
 @then("the raw vault table `{table}` to contain the following entries exactly once")
 def step_impl(context: Context, table: str) -> None:  # noqa: F811
     df = context.spark.table(f"{context.metadata.config.raw_public_database_name}.{table}")
+
+    # if table == "SAT__EFFECTIVITY_MOVIES_DIRECTORS":
+    #     df.show()
 
     for row in context.table.rows:
         row = preprocess_row(context, row)
@@ -222,13 +240,11 @@ def map_column_type_to_spark_type(type: ColumnType) -> str:
         return StringType()
 
 
-def create_raw_vault(context: Context):
-    # clean datalake
-    dirpath = Path('spark-warehouse')
-    if dirpath.exists() and dirpath.is_dir():
-        shutil.rmtree(dirpath)
-
+def create_spark_session(context: Context):
     # build sprak session
+    if context.active_spark_session:
+        context.spark.stop()
+
     context.spark = SparkSession.builder \
         .master("local") \
         .appName("datavault") \
@@ -238,8 +254,17 @@ def create_raw_vault(context: Context):
         .config("spark.sql.catalog.local", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
         .getOrCreate()
 
+
+def create_metadata(context: Context):
     metadata_config = MetadataConfiguration(context.schema, context.schema_mapping)
     context.metadata = Metadata(context.spark, metadata_config)
+
+
+def create_raw_vault(context: Context):
+    # clean datalake
+    dirpath = Path('spark-warehouse')
+    if dirpath.exists() and dirpath.is_dir():
+        shutil.rmtree(dirpath)
 
     # create databases for raw and curated
     context.metadata.initialize_databases()
