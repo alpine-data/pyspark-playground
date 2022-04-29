@@ -285,6 +285,62 @@ Feature: Raw Vault Loading
             | hk_3    | False         | t0             |
             | hk_3    | True          | t2             |
 
+    # The director FK of the movie "The Godfather" is set to None first and then set to other value in batch_2
+    Scenario: Update and delete Link in CDC batch
+        When the CDC batch `batch_1` is loaded at `t1`.
+        And the CDC batch `batch_2` is loaded at `t2`.
+        And the CDC batch `batch_3` is loaded at `t3`.
+        And the $__HKEY for the following line in the raw vault table `HUB__MOVIES` is assigned to `hk_1`
+            | NAME                          | YEAR |
+            | "The Shawshank Redemption"    | 1994 |
+        And the $__HKEY for the following line in the raw vault table `HUB__DIRECTORS` is assigned to `hk_2`
+            | ID    |
+            | 1     |
+        And the $__HKEY for the following line in the raw vault table `HUB__DIRECTORS` is assigned to `hk_3`
+            | ID    |
+            | 2     |
+        And the $__HKEY for the following line in the raw vault table `LNK__MOVIES_DIRECTORS` is assigned to `hk_4`
+            | MOVIES__HKEY  | DIRECTORS__HKEY   |
+            | hk_1          | hk_2              |
+        And the $__HKEY for the following line in the raw vault table `LNK__MOVIES_DIRECTORS` is assigned to `hk_5`
+            | MOVIES__HKEY  | DIRECTORS__HKEY   |
+            | hk_1          | hk_3              |
+
+        Then we expect the raw vault table `HUB__MOVIES` to contain the following entries exactly once:
+            | $__HKEY   | NAME                          | YEAR |
+            | hk_1      | "The Shawshank Redemption"    | 1994 |
+
+        Then we expect the raw vault table `HUB__DIRECTORS` to contain the following entries exactly once:
+            | $__HKEY   | ID    |
+            | hk_2      | 1     |
+            | hk_3      | 2     |
+        
+        Then we expect the raw vault table `LNK__MOVIES_DIRECTORS` to contain the following entries exactly once:
+            | $__HKEY   | MOVIES__HKEY  | DIRECTORS__HKEY   |
+            | hk_4      | hk_1          | hk_2              |
+            | hk_5      | hk_1          | hk_3              |
+
+        And the raw vault table `SAT__MOVIES` to contain the following entries exactly once:
+            | $__HKEY   | ID | DIRECTOR | RATING  | RANK | $__LOAD_DATE |
+            | hk_1      | 1  | 1        | 9.3     | 64   | t0           |
+            | hk_1      | 1  | 1        | 9.6     | 5    | t1           |
+            | hk_1      | 1  | None     | 9.6     | 5    | t2           |
+            | hk_1      | 1  | 2        | 9.6     | 5    | t3           |
+            | hk_1      | 1  | 1        | 9.6     | 5    | t4           |
+
+        And the raw vault table `SAT__DIRECTORS` to contain the following entries exactly once:
+            | $__HKEY   | NAME                      | COUNTRY |
+            | hk_2      | "Frank Darabont"          | "USA"   |
+            | hk_3      | "Francis Ford Coppola"    | "USA"   |
+
+        And the raw vault table `SAT__EFFECTIVITY_MOVIES_DIRECTORS` to contain the following entries exactly once:
+            | $__HKEY | $__DELETED    | $__LOAD_DATE   |
+            | hk_4    | False         | t0             |
+            | hk_4    | True          | t2             |
+            | hk_4    | False         | t4             |
+            | hk_5    | False         | t3             |
+            | hk_5    | True          | t4             |
+
     # Given the raw vault is already loaded
     Scenario: Test
         Given the raw vault is already loaded.
